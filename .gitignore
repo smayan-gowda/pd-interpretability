@@ -1,0 +1,32 @@
+# data files (too large for git)
+data/raw/
+data/processed/*.wav
+data/activations/*.npy
+data/activations/*.dat
+*.wav
+*.mp3
+
+# keep small processed files
+!data/processed/*.csv
+!data/processed/*.json
+!data/clinical_features/*.csv
+
+# model checkpoints (use google drive for these)
+results/checkpoints/*.pt
+results/checkpoints/*.bin
+*.ckpt
+
+# environment
+.env
+venv/
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+
+# ide
+.vscode/
+.idea/
+
+# os
+.DS_Store
+Thumbs.db
