@@ -12,9 +12,14 @@ pd-interpretability/
 │   ├── colab/                    # GPU-intensive notebooks for Google Colab
 │   │   ├── 01_setup_and_data.ipynb      # Environment setup and data verification
 │   │   ├── 02_train_wav2vec2.ipynb      # Model fine-tuning pipeline
-│   │   └── 03_extract_activations.ipynb # Activation extraction for probing
+│   │   ├── 03_extract_activations.ipynb # Activation extraction for probing
+│   │   ├── 04_activation_patching.ipynb # Causal patching experiments
+│   │   ├── 05_cross_dataset_generalization.ipynb # Cross-dataset evaluation
+│   │   └── 06_probing_experiments.ipynb # Layer-wise probing analysis
 │   └── local/                    # CPU-friendly analysis notebooks
-│       └── 01_phase1_demonstration.ipynb
+│       ├── 01_phase1_demonstration.ipynb
+│       ├── 02_results_analysis.ipynb    # Results aggregation and hypothesis testing
+│       └── 03_figure_generation.ipynb   # Publication-quality figure generation
 ├── src/
 │   ├── data/                     # Data loading and preprocessing
 │   │   ├── datasets.py           # PD audio dataset classes
@@ -31,7 +36,9 @@ pd-interpretability/
 │   └── utils/                    # Utilities
 │       ├── visualization.py      # Plotting and visualization
 │       ├── analysis.py           # Statistical analysis
-│       └── experiment.py         # Experiment tracking and logging
+│       ├── experiment.py         # Experiment tracking and logging
+│       ├── results.py            # Results aggregation and hypothesis testing
+│       └── figures.py            # Publication-quality figure generation
 ├── data/
 │   ├── raw/                      # Original audio datasets
 │   ├── processed/                # Preprocessed audio files
@@ -53,35 +60,36 @@ pd-interpretability/
 - Implemented audio preprocessing with resampling and segmentation
 - Created unified dataset interface
 
-### Phase 3: Wav2Vec2 Fine-tuning (Current)
+### Phase 3: Wav2Vec2 Fine-tuning ✅
 
 - Fine-tune `facebook/wav2vec2-base-960h` for PD classification
 - Leave-One-Subject-Out (LOSO) cross-validation
 - Target: 80-90% accuracy (clinical baseline: 75-85%)
 
-### Phase 4: Activation Extraction (Current)
+### Phase 4: Activation Extraction ✅
 
 - Extract intermediate layer activations from fine-tuned model
 - Store as memory-mapped arrays for efficient CPU access
 - Extract attention weights for analysis
 
-### Phase 5: Probing Experiments
+### Phase 5: Probing Experiments ✅
 
 - Train linear probes on each layer for PD classification
 - Identify which layers encode diagnostic information
 - Control experiments with permuted labels
 
-### Phase 6: Activation Patching
+### Phase 6: Activation Patching ✅
 
 - Minimal pairs analysis with PD vs. healthy speakers
 - Measure logit difference recovery per layer
 - Quantify causal importance of representations
 
-### Phase 7: Clinical Analysis
+### Phase 7: Analysis and Documentation ✅
 
-- Correlate activations with clinical features (jitter, shimmer, etc.)
-- Statistical comparison with effect sizes
-- Interpret model behavior through clinical lens
+- Results aggregation with hypothesis testing framework
+- Publication-quality figure generation (ISEF standards)
+- Cross-dataset generalization evaluation
+- Statistical analysis with effect sizes
 
 ## Installation
 
@@ -129,6 +137,38 @@ from src.models import LayerwiseProber
 
 prober = LayerwiseProber(n_layers=12)
 results = prober.run_layerwise_probing(activations, labels, subject_ids)
+```
+
+### Results Aggregation (Local)
+
+```python
+from src.utils import ResultsAggregator, HypothesisTester
+
+aggregator = ResultsAggregator("pd_experiment", output_dir="./results")
+aggregator.add_probing_results(probing_results)
+aggregator.add_patching_results(patching_results)
+
+# hypothesis testing
+tester = HypothesisTester(aggregator)
+hypothesis_results = tester.run_all_hypothesis_tests()
+print(tester.generate_hypothesis_report())
+```
+
+### Publication Figures (Local)
+
+```python
+from src.utils import FigureGenerator, set_publication_style
+
+set_publication_style()
+fig_gen = FigureGenerator(output_dir="./results/figures")
+
+# generate all figures
+fig_gen.generate_all_figures(
+    probing_results=probing_results,
+    patching_results=patching_results,
+    clinical_results=clinical_results,
+    hypothesis_results=hypothesis_results
+)
 ```
 
 ## Cross-Validation
