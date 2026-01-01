@@ -11,6 +11,8 @@ from .patching import (
     ActivationPatcher,
     AttentionHeadPatcher,
     create_minimal_pairs,
+    create_mfcc_matched_pairs,
+    compute_mfcc_distance,
     compute_patching_importance,
     compute_causal_contribution
 )
@@ -23,6 +25,8 @@ __all__ = [
     'ActivationPatcher',
     'AttentionHeadPatcher',
     'create_minimal_pairs',
+    'create_mfcc_matched_pairs',
+    'compute_mfcc_distance',
     'compute_patching_importance',
     'compute_causal_contribution'
 ]

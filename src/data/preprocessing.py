@@ -6,7 +6,7 @@ detection, noise reduction, segmentation, and quality control.
 """
 
 from pathlib import Path
-from typing import Optional, Tuple, List, Union
+from typing import Optional, Tuple, List, Union, Dict
 import warnings
 
 import torch

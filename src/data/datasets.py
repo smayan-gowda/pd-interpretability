@@ -295,67 +295,146 @@ class ItalianPVSDataset(BasePDDataset):
     """
     italian parkinson's voice and speech dataset.
 
-    source: ieee dataport
-    structure:
+    source: ieee dataport / figshare
+    actual structure (real data):
         root_dir/
-        ├── metadata.xlsx (subject demographics and diagnosis)
-        ├── PD/
-        │   ├── PD001/
-        │   │   ├── vowel_a.wav
-        │   │   ├── vowel_e.wav
-        │   │   ├── vowel_i.wav
-        │   │   ├── vowel_o.wav
-        │   │   ├── vowel_u.wav
-        │   │   ├── reading.wav
-        │   │   └── spontaneous.wav
+        ├── 15 young healthy control/
+        │   ├── SubjectName/
+        │   │   ├── VA1...wav (vowel a)
+        │   │   ├── VE1...wav (vowel e)
+        │   │   ├── VI1...wav (vowel i)
+        │   │   ├── VO1...wav (vowel o)
+        │   │   ├── VU1...wav (vowel u)
+        │   │   ├── PR1...wav (prose reading)
+        │   │   ├── FB1...wav (freephone/spontaneous)
+        │   │   └── ...
         │   └── ...
-        └── HC/
-            ├── HC001/
+        ├── 22 elderly healthy control/
+        │   └── ...
+        └── 28 people with parkinson's disease/
+            ├── 1-5/
+            │   ├── SubjectName/
+            │   │   └── ...
+            │   └── ...
             └── ...
 
     total: 65 subjects (28 pd, 37 hc), 831 audio files
-    tasks: sustained vowels (a, e, i, o, u), reading, spontaneous speech
+    tasks: sustained vowels (a, e, i, o, u), reading (pr), spontaneous (fb)
+
+    file naming convention:
+        - VA = vowel a
+        - VE = vowel e  
+        - VI = vowel i
+        - VO = vowel o
+        - VU = vowel u
+        - PR = prose reading
+        - FB = freephone/spontaneous
+        - B = breathing/other
+        - D = diadochokinesis
     """
+
+    DIAGNOSIS_FOLDERS = {
+        '15 young healthy control': ('HC_young', 0),
+        '22 elderly healthy control': ('HC_elderly', 0),
+        '28 people with parkinson\'s disease': ('PD', 1),
+        'PD': ('PD', 1),
+        'HC': ('HC', 0),
+    }
+
+    TASK_PREFIXES = {
+        'VA': 'vowel_a',
+        'VE': 'vowel_e',
+        'VI': 'vowel_i',
+        'VO': 'vowel_o',
+        'VU': 'vowel_u',
+        'PR': 'reading',
+        'FB': 'spontaneous',
+        'B': 'breathing',
+        'D': 'diadochokinesis',
+    }
 
     def _load_samples(self) -> List[Dict]:
         """load italian pvs samples with metadata."""
         samples = []
 
-        metadata_path = self.root_dir / "metadata.xlsx"
-        metadata_df = self._load_metadata(metadata_path)
-
-        for diagnosis, label in [("PD", 1), ("HC", 0)]:
-            diagnosis_dir = self.root_dir / diagnosis
+        for folder_name, (diagnosis, label) in self.DIAGNOSIS_FOLDERS.items():
+            diagnosis_dir = self.root_dir / folder_name
 
             if not diagnosis_dir.exists():
-                warnings.warn(f"directory not found: {diagnosis_dir}")
                 continue
 
-            for subject_dir in sorted(diagnosis_dir.iterdir()):
-                if not subject_dir.is_dir():
+            samples.extend(self._load_from_diagnosis_folder(
+                diagnosis_dir, diagnosis, label
+            ))
+
+        if len(samples) == 0:
+            for subfolder in self.root_dir.iterdir():
+                if not subfolder.is_dir() or subfolder.name.startswith('.'):
                     continue
 
-                subject_id = subject_dir.name
-                subject_meta = self._get_subject_metadata(metadata_df, subject_id)
+                is_pd = 'parkinson' in subfolder.name.lower() or 'pd' in subfolder.name.lower()
+                label = 1 if is_pd else 0
+                diagnosis = 'PD' if is_pd else 'HC'
 
-                for audio_file in sorted(subject_dir.glob("*.wav")):
-                    task_name = self._parse_task_name(audio_file.stem)
+                samples.extend(self._load_from_diagnosis_folder(
+                    subfolder, diagnosis, label
+                ))
 
-                    if self.task is not None and task_name not in self.task:
-                        continue
+        return samples
 
-                    sample = {
-                        'path': audio_file,
-                        'label': label,
-                        'subject_id': subject_id,
-                        'task': task_name,
-                        'diagnosis': diagnosis
-                    }
+    def _load_from_diagnosis_folder(
+        self,
+        folder: Path,
+        diagnosis: str,
+        label: int
+    ) -> List[Dict]:
+        """load samples from a diagnosis folder, handling nested structures."""
+        samples = []
 
-                    if subject_meta is not None:
-                        sample.update(subject_meta)
+        for item in sorted(folder.iterdir()):
+            if not item.is_dir() or item.name.startswith('.'):
+                continue
 
-                    samples.append(sample)
+            if item.name.startswith(('1-', '6-', '11-', '17-')) or item.name[0].isdigit():
+                for subject_dir in sorted(item.iterdir()):
+                    if subject_dir.is_dir() and not subject_dir.name.startswith('.'):
+                        samples.extend(self._load_subject_folder(
+                            subject_dir, diagnosis, label
+                        ))
+            else:
+                samples.extend(self._load_subject_folder(item, diagnosis, label))
+
+        return samples
+
+    def _load_subject_folder(
+        self,
+        subject_dir: Path,
+        diagnosis: str,
+        label: int
+    ) -> List[Dict]:
+        """load all audio files from a subject folder."""
+        samples = []
+        subject_id = f"{diagnosis}_{subject_dir.name.replace(' ', '_')}"
+
+        for audio_file in sorted(subject_dir.glob("*.wav")):
+            if audio_file.name.startswith('.'):
+                continue
+
+            task_name = self._parse_task_name(audio_file.stem)
+
+            if self.task is not None and task_name not in self.task:
+                continue
+
+            samples.append({
+                'path': audio_file,
+                'label': label,
+                'subject_id': subject_id,
+                'task': task_name,
+                'diagnosis': diagnosis
+            })
+
+        for audio_file in sorted(subject_dir.glob("*.txt")):
+            pass
 
         return samples
 
@@ -386,7 +465,13 @@ class ItalianPVSDataset(BasePDDataset):
         return meta
 
     def _parse_task_name(self, filename: str) -> str:
-        """extract task name from filename."""
+        """extract task name from filename using prefix codes."""
+        filename_upper = filename.upper()
+
+        for prefix, task in self.TASK_PREFIXES.items():
+            if filename_upper.startswith(prefix):
+                return task
+
         filename_lower = filename.lower()
 
         if 'vowel_a' in filename_lower or filename_lower == 'a':
@@ -399,34 +484,113 @@ class ItalianPVSDataset(BasePDDataset):
             return 'vowel_o'
         elif 'vowel_u' in filename_lower or filename_lower == 'u':
             return 'vowel_u'
-        elif 'reading' in filename_lower:
+        elif 'reading' in filename_lower or 'prose' in filename_lower:
             return 'reading'
-        elif 'spontaneous' in filename_lower or 'monologue' in filename_lower:
+        elif 'spontaneous' in filename_lower or 'monologue' in filename_lower or 'free' in filename_lower:
             return 'spontaneous'
         else:
-            return filename
+            return 'unknown'
 
 
 class MDVRKCLDataset(BasePDDataset):
     """
     mdvr-kcl parkinson's speech dataset.
 
-    source: king's college london
-    structure:
+    source: king's college london / zenodo
+    actual structure:
         root_dir/
-        ├── metadata.csv (subject info, updrs scores)
-        ├── audio/
-        │   ├── PD_001_reading.wav
-        │   ├── PD_001_monologue.wav
-        │   ├── HC_001_reading.wav
-        │   └── ...
+        ├── ReadText/
+        │   ├── HC/
+        │   │   ├── ID01_hc_2_0_0.wav
+        │   │   └── ...
+        │   └── PD/
+        │       ├── ID02_pd_2_0_0.wav
+        │       └── ...
+        └── SpontaneousDialogue/
+            ├── HC/
+            └── PD/
+
+    filename format: ID{num}_{hc|pd}_{n}_{n}_{n}.wav
 
     total: 37 subjects (16 pd, 21 hc), ~74 audio files
-    tasks: reading passage, monologue
+    tasks: reading passage (ReadText), spontaneous dialogue
     """
 
+    TASK_FOLDERS = {
+        'ReadText': 'reading',
+        'SpontaneousDialogue': 'spontaneous',
+    }
+
     def _load_samples(self) -> List[Dict]:
-        """load mdvr-kcl samples."""
+        """load mdvr-kcl samples from actual directory structure."""
+        samples = []
+
+        for task_folder, task_name in self.TASK_FOLDERS.items():
+            task_dir = self.root_dir / task_folder
+
+            if not task_dir.exists():
+                continue
+
+            for diagnosis in ['HC', 'PD']:
+                diagnosis_dir = task_dir / diagnosis
+                label = 1 if diagnosis == 'PD' else 0
+
+                if not diagnosis_dir.exists():
+                    continue
+
+                for audio_file in sorted(diagnosis_dir.glob("*.wav")):
+                    if audio_file.name.startswith('.'):
+                        continue
+
+                    subject_id = self._extract_subject_id(audio_file.stem, diagnosis)
+
+                    if self.task is not None and task_name not in self.task:
+                        continue
+
+                    sample = {
+                        'path': audio_file,
+                        'label': label,
+                        'subject_id': subject_id,
+                        'task': task_name,
+                        'diagnosis': diagnosis
+                    }
+
+                    parsed = self._parse_filename_metadata(audio_file.stem)
+                    if parsed:
+                        sample.update(parsed)
+
+                    samples.append(sample)
+
+        if len(samples) == 0:
+            samples = self._load_legacy_format()
+
+        return samples
+
+    def _extract_subject_id(self, filename: str, diagnosis: str) -> str:
+        """extract subject id from filename."""
+        parts = filename.split('_')
+        if len(parts) >= 1 and parts[0].startswith('ID'):
+            return f"{diagnosis}_{parts[0]}"
+        return f"{diagnosis}_{filename}"
+
+    def _parse_filename_metadata(self, filename: str) -> Optional[Dict]:
+        """parse metadata from mdvr-kcl filename format."""
+        parts = filename.split('_')
+
+        if len(parts) >= 5:
+            try:
+                return {
+                    'hy_stage': int(parts[2]),
+                    'updrs_speech': int(parts[3]),
+                    'updrs_facial': int(parts[4])
+                }
+            except (ValueError, IndexError):
+                pass
+
+        return None
+
+    def _load_legacy_format(self) -> List[Dict]:
+        """fallback loader for original expected format."""
         samples = []
 
         metadata_path = self.root_dir / "metadata.csv"
@@ -519,40 +683,53 @@ class MDVRKCLDataset(BasePDDataset):
 
 class ArkansasDataset(BasePDDataset):
     """
-    arkansas parkinson's disease speech dataset.
+    arkansas parkinson's disease speech dataset (figshare).
 
-    structure:
+    actual structure:
         root_dir/
-        ├── metadata.csv
-        ├── PD/
+        ├── Demographics_age_sex.xlsx
+        ├── HC_AH/
         │   ├── subject_001.wav
         │   └── ...
-        └── HC/
+        └── PD_AH/
             ├── subject_001.wav
             └── ...
 
+    alternate structure (generic):
+        root_dir/
+        ├── PD/
+        └── HC/
+
     total: ~81 subjects (40 pd, 41 hc)
-    tasks: typically sustained vowel /a/ or reading
+    tasks: typically sustained vowel /a/ (ah)
     """
 
+    DIAGNOSIS_FOLDERS = {
+        'PD_AH': ('PD', 1),
+        'HC_AH': ('HC', 0),
+        'PD': ('PD', 1),
+        'HC': ('HC', 0),
+    }
+
     def _load_samples(self) -> List[Dict]:
-        """load arkansas dataset samples."""
+        """load arkansas dataset samples from actual structure."""
         samples = []
 
-        metadata_path = self.root_dir / "metadata.csv"
-        metadata_df = self._load_metadata_csv(metadata_path)
+        metadata_path = self.root_dir / "Demographics_age_sex.xlsx"
+        metadata_df = self._load_metadata_excel(metadata_path)
 
-        for diagnosis, label in [("PD", 1), ("HC", 0)]:
-            diagnosis_dir = self.root_dir / diagnosis
+        for folder_name, (diagnosis, label) in self.DIAGNOSIS_FOLDERS.items():
+            diagnosis_dir = self.root_dir / folder_name
 
             if not diagnosis_dir.exists():
-                warnings.warn(f"directory not found: {diagnosis_dir}")
                 continue
 
             for audio_file in sorted(diagnosis_dir.glob("*.wav")):
-                subject_id = f"{diagnosis}_{audio_file.stem}"
+                if audio_file.name.startswith('.'):
+                    continue
 
-                task_name = self._infer_task(audio_file.stem)
+                subject_id = f"{diagnosis}_{audio_file.stem}"
+                task_name = 'vowel_ah'
 
                 if self.task is not None and task_name not in self.task:
                     continue
@@ -574,6 +751,15 @@ class ArkansasDataset(BasePDDataset):
 
         return samples
 
+    def _load_metadata_excel(self, path: Path) -> Optional[pd.DataFrame]:
+        """load metadata from excel file."""
+        if path.exists():
+            try:
+                return pd.read_excel(path)
+            except Exception as e:
+                warnings.warn(f"failed to load metadata from {path}: {e}")
+        return None
+
     def _load_metadata_csv(self, path: Path) -> Optional[pd.DataFrame]:
         """load metadata csv."""
         if path.exists():
@@ -589,23 +775,27 @@ class ArkansasDataset(BasePDDataset):
         filename: str
     ) -> Optional[Dict]:
         """get metadata for specific file."""
-        file_row = metadata_df[metadata_df['filename'] == filename]
-        if len(file_row) == 0:
-            return None
+        possible_columns = ['filename', 'file', 'id', 'subject', 'name']
 
-        meta = file_row.iloc[0].to_dict()
-        return {k: v for k, v in meta.items() if pd.notna(v)}
+        for col in possible_columns:
+            if col in metadata_df.columns:
+                file_row = metadata_df[metadata_df[col].astype(str) == filename]
+                if len(file_row) > 0:
+                    meta = file_row.iloc[0].to_dict()
+                    return {k: v for k, v in meta.items() if pd.notna(v)}
+
+        return None
 
     def _infer_task(self, filename: str) -> str:
         """infer task from filename."""
         filename_lower = filename.lower()
 
-        if 'vowel' in filename_lower or 'sustained' in filename_lower:
-            return 'vowel_a'
+        if 'ah' in filename_lower or 'vowel' in filename_lower or 'sustained' in filename_lower:
+            return 'vowel_ah'
         elif 'reading' in filename_lower:
             return 'reading'
         else:
-            return 'unknown'
+            return 'vowel_ah'
 
 
 class NeuroVozDataset(BasePDDataset):
