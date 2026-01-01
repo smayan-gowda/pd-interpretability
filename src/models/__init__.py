@@ -26,6 +26,16 @@ from .cross_validation import (
     run_stratified_kfold_cv
 )
 
+from .generalization import (
+    CrossDatasetResults,
+    ClinicalAlignmentProfile,
+    CrossDatasetEvaluator,
+    ClinicalAlignmentAnalyzer,
+    GeneralizationInterpretabilityAnalyzer,
+    DatasetSpecificTrainer,
+    run_cross_dataset_analysis
+)
+
 __all__ = [
     # classifier
     'Wav2Vec2PDClassifier',
@@ -46,5 +56,13 @@ __all__ = [
     'CVResults',
     'CrossValidationTrainer',
     'run_loso_cv',
-    'run_stratified_kfold_cv'
+    'run_stratified_kfold_cv',
+    # cross-dataset generalization
+    'CrossDatasetResults',
+    'ClinicalAlignmentProfile',
+    'CrossDatasetEvaluator',
+    'ClinicalAlignmentAnalyzer',
+    'GeneralizationInterpretabilityAnalyzer',
+    'DatasetSpecificTrainer',
+    'run_cross_dataset_analysis'
 ]
