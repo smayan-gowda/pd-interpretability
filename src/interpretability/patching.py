@@ -386,6 +386,142 @@ def create_minimal_pairs(
     return pairs
 
 
+def create_mfcc_matched_pairs(
+    dataset,
+    n_pairs: int = 50,
+    same_task: bool = True,
+    n_mfcc: int = 13,
+    sr: int = 16000
+) -> List[Tuple[torch.Tensor, torch.Tensor, int, float]]:
+    """
+    create (hc, pd) pairs matched by mfcc acoustic similarity.
+
+    for each pd sample, finds the most acoustically similar hc sample
+    using mfcc distance. this creates proper minimal pairs for
+    activation patching experiments.
+
+    args:
+        dataset: pytorch dataset with 'input_values', 'label', 'task'
+        n_pairs: number of pairs to create
+        same_task: whether to require matching task types
+        n_mfcc: number of mfcc coefficients
+        sr: sampling rate
+
+    returns:
+        list of (hc_audio, pd_audio, hc_label, mfcc_distance) tuples
+    """
+    try:
+        import librosa
+    except ImportError:
+        warnings.warn("librosa required for mfcc matching, falling back to random pairs")
+        return create_minimal_pairs(dataset, n_pairs, same_task)
+
+    pd_indices = [i for i, s in enumerate(dataset.samples) if s['label'] == 1]
+    hc_indices = [i for i, s in enumerate(dataset.samples) if s['label'] == 0]
+
+    if len(pd_indices) == 0 or len(hc_indices) == 0:
+        warnings.warn("no pd or hc samples found")
+        return []
+
+    hc_mfccs = {}
+    for hc_idx in tqdm(hc_indices, desc="computing hc mfccs"):
+        try:
+            sample = dataset[hc_idx]
+            audio = sample['input_values'].numpy()
+            mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=n_mfcc)
+            hc_mfccs[hc_idx] = {
+                'mfcc_mean': mfcc.mean(axis=1),
+                'mfcc_std': mfcc.std(axis=1),
+                'task': sample.get('task', 'unknown')
+            }
+        except Exception as e:
+            warnings.warn(f"failed to compute mfcc for sample {hc_idx}: {e}")
+            continue
+
+    pairs = []
+    used_hc = set()
+
+    for pd_idx in tqdm(pd_indices[:n_pairs * 2], desc="matching pairs"):
+        try:
+            pd_sample = dataset[pd_idx]
+            pd_audio = pd_sample['input_values'].numpy()
+            pd_task = pd_sample.get('task', 'unknown')
+
+            pd_mfcc = librosa.feature.mfcc(y=pd_audio, sr=sr, n_mfcc=n_mfcc)
+            pd_mfcc_mean = pd_mfcc.mean(axis=1)
+            pd_mfcc_std = pd_mfcc.std(axis=1)
+
+            best_match = None
+            best_distance = float('inf')
+
+            for hc_idx, hc_data in hc_mfccs.items():
+                if hc_idx in used_hc:
+                    continue
+
+                if same_task and hc_data['task'] != pd_task:
+                    continue
+
+                mean_dist = np.linalg.norm(pd_mfcc_mean - hc_data['mfcc_mean'])
+                std_dist = np.linalg.norm(pd_mfcc_std - hc_data['mfcc_std'])
+                distance = mean_dist + 0.5 * std_dist
+
+                if distance < best_distance:
+                    best_distance = distance
+                    best_match = hc_idx
+
+            if best_match is not None:
+                used_hc.add(best_match)
+
+                hc_sample = dataset[best_match]
+
+                pairs.append((
+                    hc_sample['input_values'],
+                    pd_sample['input_values'],
+                    0,
+                    best_distance
+                ))
+
+                if len(pairs) >= n_pairs:
+                    break
+
+        except Exception as e:
+            warnings.warn(f"failed to match sample {pd_idx}: {e}")
+            continue
+
+    pairs.sort(key=lambda x: x[3])
+
+    return pairs
+
+
+def compute_mfcc_distance(
+    audio1: np.ndarray,
+    audio2: np.ndarray,
+    sr: int = 16000,
+    n_mfcc: int = 13
+) -> float:
+    """
+    compute mfcc distance between two audio samples.
+
+    args:
+        audio1: first audio array
+        audio2: second audio array
+        sr: sampling rate
+        n_mfcc: number of mfcc coefficients
+
+    returns:
+        euclidean distance between mfcc means
+    """
+    import librosa
+
+    mfcc1 = librosa.feature.mfcc(y=audio1, sr=sr, n_mfcc=n_mfcc)
+    mfcc2 = librosa.feature.mfcc(y=audio2, sr=sr, n_mfcc=n_mfcc)
+
+    mean1 = mfcc1.mean(axis=1)
+    mean2 = mfcc2.mean(axis=1)
+
+    return float(np.linalg.norm(mean1 - mean2))
+
+
 def compute_patching_importance(
     patching_results: Dict[int, Dict[str, float]],
     threshold: float = 0.5

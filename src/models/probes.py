@@ -400,6 +400,187 @@ def compute_selectivity_score(
     return max(0, target_accuracy - control_accuracy)
 
 
+class ControlTaskProber:
+    """
+    probe with control tasks for validation.
+
+    control tasks (e.g., predicting recording id, segment index) should NOT
+    be predictable from representations. if they are, it indicates the probe
+    may be learning spurious correlations rather than genuine features.
+    """
+
+    def __init__(
+        self,
+        regularization: float = 1.0
+    ):
+        """
+        args:
+            regularization: regularization strength for probes
+        """
+        self.regularization = regularization
+        self.target_probe = None
+        self.control_probes = {}
+        self.results = {}
+
+    def fit_with_controls(
+        self,
+        X: np.ndarray,
+        y_target: np.ndarray,
+        control_labels: Dict[str, np.ndarray],
+        groups: Optional[np.ndarray] = None
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        fit target probe and control probes.
+
+        args:
+            X: representations [n_samples, n_features]
+            y_target: target labels (e.g., pd vs hc)
+            control_labels: dict mapping control task names to labels
+                e.g., {'recording_id': [...], 'segment_index': [...]}
+            groups: group labels for cv
+
+        returns:
+            results dict with target and control performance
+        """
+        self.target_probe = LinearProbe(
+            task='classification',
+            regularization=self.regularization
+        )
+        target_results = self.target_probe.cross_validate(X, y_target, groups)
+        self.results['target'] = target_results
+
+        for control_name, control_y in control_labels.items():
+            n_unique = len(np.unique(control_y))
+
+            if n_unique <= 1:
+                warnings.warn(f"control task {control_name} has only 1 unique value")
+                continue
+
+            if n_unique > 50:
+                task_type = 'regression'
+            else:
+                task_type = 'classification'
+
+            control_probe = LinearProbe(
+                task=task_type,
+                regularization=self.regularization
+            )
+
+            try:
+                control_results = control_probe.cross_validate(
+                    X, control_y, groups
+                )
+                self.control_probes[control_name] = control_probe
+                self.results[f'control_{control_name}'] = control_results
+            except Exception as e:
+                warnings.warn(f"failed to fit control probe {control_name}: {e}")
+
+        return self.results
+
+    def get_selectivity(self) -> Dict[str, float]:
+        """
+        compute selectivity scores against each control task.
+
+        returns:
+            dict mapping control task to selectivity score
+        """
+        if 'target' not in self.results:
+            raise ValueError("fit_with_controls must be called first")
+
+        target_score = self.results['target']['mean']
+        selectivity = {}
+
+        for key, results in self.results.items():
+            if key.startswith('control_'):
+                control_name = key.replace('control_', '')
+                control_score = results['mean']
+                selectivity[control_name] = compute_selectivity_score(
+                    target_score, control_score
+                )
+
+        return selectivity
+
+    def validate_probe_quality(
+        self,
+        min_target_acc: float = 0.6,
+        max_control_acc: float = 0.6,
+        min_selectivity: float = 0.1
+    ) -> Dict[str, bool]:
+        """
+        validate that probe is learning meaningful features.
+
+        args:
+            min_target_acc: minimum required target accuracy
+            max_control_acc: maximum allowed control accuracy
+            min_selectivity: minimum selectivity score
+
+        returns:
+            dict of validation checks
+        """
+        if 'target' not in self.results:
+            raise ValueError("fit_with_controls must be called first")
+
+        target_acc = self.results['target']['mean']
+        selectivity = self.get_selectivity()
+
+        checks = {
+            'target_above_chance': target_acc >= min_target_acc,
+            'controls_not_predictable': True,
+            'sufficient_selectivity': True
+        }
+
+        for key, results in self.results.items():
+            if key.startswith('control_'):
+                if results['mean'] > max_control_acc:
+                    checks['controls_not_predictable'] = False
+                    break
+
+        if selectivity:
+            avg_selectivity = np.mean(list(selectivity.values()))
+            if avg_selectivity < min_selectivity:
+                checks['sufficient_selectivity'] = False
+
+        return checks
+
+
+def create_control_labels(
+    sample_metadata: List[Dict],
+    segment_counts: Optional[List[int]] = None
+) -> Dict[str, np.ndarray]:
+    """
+    create control task labels from sample metadata.
+
+    args:
+        sample_metadata: list of dicts with 'subject_id', 'recording_id' fields
+        segment_counts: optional list of segment counts per recording
+
+    returns:
+        dict with 'recording_id' and optionally 'segment_index' arrays
+    """
+    recording_ids = []
+    recording_id_map = {}
+
+    for meta in sample_metadata:
+        rec_id = meta.get('recording_id', meta.get('subject_id', 'unknown'))
+
+        if rec_id not in recording_id_map:
+            recording_id_map[rec_id] = len(recording_id_map)
+
+        recording_ids.append(recording_id_map[rec_id])
+
+    control_labels = {
+        'recording_id': np.array(recording_ids)
+    }
+
+    if segment_counts is not None:
+        segment_indices = []
+        for count in segment_counts:
+            segment_indices.extend(range(count))
+        control_labels['segment_index'] = np.array(segment_indices)
+
+    return control_labels
+
+
 def permutation_test_probe(
     probe: LinearProbe,
     X: np.ndarray,
