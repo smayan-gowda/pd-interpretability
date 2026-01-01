@@ -23,6 +23,14 @@ from .patching import (
     compute_causal_contribution
 )
 
+from .prediction_interface import (
+    InterpretablePrediction,
+    InterpretablePredictionInterface,
+    FeatureContribution,
+    create_interpretable_interface,
+    CLINICAL_INTERPRETATIONS
+)
+
 __all__ = [
     # extraction
     'Wav2Vec2ActivationExtractor',
@@ -45,5 +53,11 @@ __all__ = [
     'create_mfcc_matched_pairs',
     'compute_mfcc_distance',
     'compute_patching_importance',
-    'compute_causal_contribution'
+    'compute_causal_contribution',
+    # interpretable prediction interface (phase 5 synthesis)
+    'InterpretablePrediction',
+    'InterpretablePredictionInterface',
+    'FeatureContribution',
+    'create_interpretable_interface',
+    'CLINICAL_INTERPRETATIONS'
 ]
