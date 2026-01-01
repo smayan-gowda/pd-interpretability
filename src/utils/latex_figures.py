@@ -470,7 +470,7 @@ class PublicationFigureGenerator:
 
             rect_layer = FancyBboxPatch((transformer_x, y), 5, 0.35,
                                        boxstyle='round,pad=0.02',
-                                       facecolor='#E6F3FF' if i % 2 == 0 else='#CCE5FF',
+                                       facecolor='#E6F3FF' if i % 2 == 0 else '#CCE5FF',
                                        edgecolor='black', linewidth=1)
             ax.add_patch(rect_layer)
 
