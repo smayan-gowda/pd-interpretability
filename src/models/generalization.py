@@ -17,9 +17,13 @@ import warnings
 
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 import numpy as np
 from scipy import stats as scipy_stats
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_score
 from tqdm import tqdm
 
 
@@ -291,10 +295,6 @@ class ClinicalAlignmentAnalyzer:
         returns:
             ClinicalAlignmentProfile
         """
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.model_selection import cross_val_score
-        
         profile = ClinicalAlignmentProfile(model_name=model_name)
         
         # map activation samples to clinical features
@@ -353,9 +353,9 @@ class ClinicalAlignmentAnalyzer:
             profile.layerwise_probing[feature_name] = layer_scores
             
             # compute feature-wise score (best layer performance)
-            best_score = max(layer_scores.values())
+            best_score = max(layer_scores.values()) if layer_scores else 0.5
             profile.feature_scores[feature_name] = best_score
-            profile.best_layers[feature_name] = max(layer_scores, key=layer_scores.get)
+            profile.best_layers[feature_name] = max(layer_scores, key=layer_scores.get) if layer_scores else 0
         
         profile.compute_overall_score()
         
@@ -463,23 +463,45 @@ class GeneralizationInterpretabilityAnalyzer:
     
     def _interpret_correlation(self, corr: float, p_value: float) -> str:
         """interpret correlation strength and significance."""
-        if p_value > 0.05:
-            sig = "not significant"
-        elif p_value > 0.01:
-            sig = "marginally significant"
-        else:
-            sig = "significant"
+        if np.isnan(corr):
+            return "undefined correlation (insufficient variance)"
         
-        if abs(corr) < 0.3:
-            strength = "weak"
-        elif abs(corr) < 0.6:
-            strength = "moderate"
+        # significance interpretation
+        if p_value > 0.10:
+            sig = "not statistically significant (p > 0.10)"
+        elif p_value > 0.05:
+            sig = "marginally significant (p < 0.10)"
+        elif p_value > 0.01:
+            sig = "statistically significant (p < 0.05)"
         else:
+            sig = "highly significant (p < 0.01)"
+        
+        # strength interpretation
+        abs_corr = abs(corr)
+        if abs_corr < 0.1:
+            strength = "negligible"
+        elif abs_corr < 0.3:
+            strength = "weak"
+        elif abs_corr < 0.5:
+            strength = "moderate"
+        elif abs_corr < 0.7:
             strength = "strong"
+        else:
+            strength = "very strong"
         
         direction = "positive" if corr > 0 else "negative"
         
-        return f"{strength} {direction} correlation ({sig})"
+        # hypothesis-specific interpretation
+        # negative correlation between alignment and gap is GOOD
+        # (higher alignment -> smaller gap -> better generalization)
+        if corr < -0.3:
+            hypothesis_support = "supports hypothesis that clinical alignment aids generalization"
+        elif corr > 0.3:
+            hypothesis_support = "contradicts hypothesis (alignment correlates with LARGER gaps)"
+        else:
+            hypothesis_support = "inconclusive regarding alignment-generalization hypothesis"
+        
+        return f"{strength} {direction} correlation, {sig}. {hypothesis_support}"
     
     def generate_report(self) -> Dict[str, Any]:
         """
@@ -529,35 +551,185 @@ class GeneralizationInterpretabilityAnalyzer:
         return report
 
 
+class DataCollatorForSequenceClassification:
+    """
+    data collator that pads audio sequences to the same length.
+    """
+    
+    def __init__(self, padding: bool = True, max_length: Optional[int] = None):
+        self.padding = padding
+        self.max_length = max_length
+    
+    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        """pad a batch of features."""
+        input_values = [f['input_values'] for f in features]
+        labels = [f['label'] for f in features]
+        
+        # find max length
+        max_len = max(x.shape[0] if isinstance(x, (torch.Tensor, np.ndarray)) else len(x) 
+                      for x in input_values)
+        
+        if self.max_length is not None:
+            max_len = min(max_len, self.max_length)
+        
+        # pad sequences
+        padded = []
+        attention_mask = []
+        
+        for inp in input_values:
+            if isinstance(inp, np.ndarray):
+                inp = torch.from_numpy(inp)
+            elif not isinstance(inp, torch.Tensor):
+                inp = torch.tensor(inp)
+            
+            if inp.shape[0] > max_len:
+                inp = inp[:max_len]
+                mask = torch.ones(max_len)
+            elif inp.shape[0] < max_len:
+                pad_len = max_len - inp.shape[0]
+                mask = torch.cat([torch.ones(inp.shape[0]), torch.zeros(pad_len)])
+                inp = torch.cat([inp, torch.zeros(pad_len)])
+            else:
+                mask = torch.ones(max_len)
+            
+            padded.append(inp)
+            attention_mask.append(mask)
+        
+        return {
+            'input_values': torch.stack(padded),
+            'attention_mask': torch.stack(attention_mask),
+            'labels': torch.tensor(labels, dtype=torch.long)
+        }
+
+
 class DatasetSpecificTrainer:
     """
     train dataset-specific models for cross-dataset analysis.
+    
+    implements complete training loop with proper data handling.
     """
     
     def __init__(
         self,
-        model_init_fn: Callable,
-        training_args_fn: Callable,
-        device: str = "cuda"
+        model_name: str = "facebook/wav2vec2-base-960h",
+        num_labels: int = 2,
+        learning_rate: float = 1e-5,
+        epochs: int = 3,
+        batch_size: int = 8,
+        warmup_ratio: float = 0.1,
+        weight_decay: float = 0.01,
+        freeze_feature_extractor: bool = True,
+        device: str = "cuda" if torch.cuda.is_available() else "cpu"
     ):
         """
         args:
-            model_init_fn: function that returns a new model instance
-            training_args_fn: function that returns training arguments
+            model_name: pretrained model identifier
+            num_labels: number of classification labels
+            learning_rate: learning rate for optimizer
+            epochs: number of training epochs
+            batch_size: batch size for training
+            warmup_ratio: warmup ratio for scheduler
+            weight_decay: weight decay for regularization
+            freeze_feature_extractor: whether to freeze feature extractor
             device: device to train on
         """
-        self.model_init_fn = model_init_fn
-        self.training_args_fn = training_args_fn
+        self.model_name = model_name
+        self.num_labels = num_labels
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.warmup_ratio = warmup_ratio
+        self.weight_decay = weight_decay
+        self.freeze_feature_extractor = freeze_feature_extractor
         self.device = device
         self.trained_models: Dict[str, Any] = {}
+        self.training_histories: Dict[str, List[Dict]] = {}
+    
+    def _create_model(self):
+        """create a fresh model instance."""
+        from transformers import Wav2Vec2ForSequenceClassification, Wav2Vec2Config
+        
+        config = Wav2Vec2Config.from_pretrained(
+            self.model_name,
+            num_labels=self.num_labels,
+            classifier_dropout=0.1
+        )
+        
+        model = Wav2Vec2ForSequenceClassification.from_pretrained(
+            self.model_name,
+            config=config,
+            ignore_mismatched_sizes=True
+        )
+        
+        if self.freeze_feature_extractor:
+            model.wav2vec2.feature_extractor._freeze_parameters()
+        
+        return model.to(self.device)
+    
+    def _compute_metrics(self, predictions: np.ndarray, labels: np.ndarray) -> Dict[str, float]:
+        """compute evaluation metrics."""
+        preds = np.argmax(predictions, axis=1)
+        
+        metrics = {
+            'accuracy': accuracy_score(labels, preds),
+            'f1': f1_score(labels, preds, average='binary', zero_division=0),
+        }
+        
+        try:
+            if len(np.unique(labels)) > 1:
+                probs = np.exp(predictions) / np.sum(np.exp(predictions), axis=1, keepdims=True)
+                metrics['auc'] = roc_auc_score(labels, probs[:, 1])
+            else:
+                metrics['auc'] = 0.5
+        except ValueError:
+            metrics['auc'] = 0.5
+        
+        return metrics
+    
+    @torch.no_grad()
+    def _evaluate(self, model, dataloader) -> Dict[str, float]:
+        """evaluate model on a dataloader."""
+        model.eval()
+        
+        all_preds = []
+        all_labels = []
+        total_loss = 0
+        n_batches = 0
+        
+        for batch in dataloader:
+            input_values = batch['input_values'].to(self.device)
+            attention_mask = batch.get('attention_mask')
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.device)
+            labels = batch['labels'].to(self.device)
+            
+            outputs = model(
+                input_values=input_values,
+                attention_mask=attention_mask,
+                labels=labels
+            )
+            
+            total_loss += outputs.loss.item()
+            n_batches += 1
+            
+            all_preds.append(outputs.logits.cpu().numpy())
+            all_labels.append(labels.cpu().numpy())
+        
+        all_preds = np.concatenate(all_preds, axis=0)
+        all_labels = np.concatenate(all_labels, axis=0)
+        
+        metrics = self._compute_metrics(all_preds, all_labels)
+        metrics['loss'] = total_loss / max(n_batches, 1)
+        
+        return metrics
     
     def train_on_dataset(
         self,
         dataset_name: str,
         train_dataset,
         eval_dataset,
-        output_dir: Path
-    ) -> Any:
+        output_dir: Optional[Path] = None
+    ) -> Tuple[Any, Dict]:
         """
         train a model on a specific dataset.
         
@@ -565,42 +737,145 @@ class DatasetSpecificTrainer:
             dataset_name: name of the dataset
             train_dataset: training dataset
             eval_dataset: evaluation dataset
-            output_dir: directory to save model
+            output_dir: optional directory to save model
         
         returns:
-            trained model
+            (trained model, training metrics)
         """
-        from transformers import Trainer
-        from ..models.classifier import DataCollatorWithPadding, compute_metrics
+        print(f"\n{'='*60}")
+        print(f"training model on: {dataset_name}")
+        print(f"{'='*60}")
         
-        output_dir = Path(output_dir) / dataset_name
-        output_dir.mkdir(parents=True, exist_ok=True)
+        model = self._create_model()
         
-        model = self.model_init_fn()
-        training_args = self.training_args_fn(output_dir=str(output_dir))
+        # create dataloaders
+        collator = DataCollatorForSequenceClassification()
         
-        trainer = Trainer(
-            model=model.model,
-            args=training_args,
-            train_dataset=train_dataset,
-            eval_dataset=eval_dataset,
-            data_collator=DataCollatorWithPadding(),
-            compute_metrics=compute_metrics
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=collator
         )
         
-        trainer.train()
+        eval_loader = DataLoader(
+            eval_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            collate_fn=collator
+        )
+        
+        # setup optimizer and scheduler
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay
+        )
+        
+        total_steps = len(train_loader) * self.epochs
+        warmup_steps = int(total_steps * self.warmup_ratio)
+        
+        scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=0.1,
+            end_factor=1.0,
+            total_iters=warmup_steps
+        )
+        
+        # training loop
+        history = []
+        best_eval_acc = 0
+        best_model_state = None
+        
+        for epoch in range(self.epochs):
+            model.train()
+            total_loss = 0
+            n_batches = 0
+            
+            progress = tqdm(train_loader, desc=f"epoch {epoch+1}/{self.epochs}")
+            
+            for batch in progress:
+                input_values = batch['input_values'].to(self.device)
+                attention_mask = batch.get('attention_mask')
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(self.device)
+                labels = batch['labels'].to(self.device)
+                
+                optimizer.zero_grad()
+                
+                outputs = model(
+                    input_values=input_values,
+                    attention_mask=attention_mask,
+                    labels=labels
+                )
+                
+                loss = outputs.loss
+                loss.backward()
+                
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
+                optimizer.step()
+                scheduler.step()
+                
+                total_loss += loss.item()
+                n_batches += 1
+                
+                progress.set_postfix({'loss': total_loss / n_batches})
+            
+            # evaluate
+            eval_metrics = self._evaluate(model, eval_loader)
+            train_metrics = {'loss': total_loss / max(n_batches, 1)}
+            
+            epoch_metrics = {
+                'epoch': epoch + 1,
+                'train_loss': train_metrics['loss'],
+                'eval_loss': eval_metrics['loss'],
+                'eval_accuracy': eval_metrics['accuracy'],
+                'eval_f1': eval_metrics['f1'],
+                'eval_auc': eval_metrics['auc']
+            }
+            history.append(epoch_metrics)
+            
+            print(f"  epoch {epoch+1}: train_loss={train_metrics['loss']:.4f}, "
+                  f"eval_acc={eval_metrics['accuracy']:.4f}, eval_f1={eval_metrics['f1']:.4f}")
+            
+            # save best model
+            if eval_metrics['accuracy'] > best_eval_acc:
+                best_eval_acc = eval_metrics['accuracy']
+                best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+        
+        # restore best model
+        if best_model_state is not None:
+            model.load_state_dict({k: v.to(self.device) for k, v in best_model_state.items()})
+        
+        # final evaluation
+        final_metrics = self._evaluate(model, eval_loader)
         
         self.trained_models[dataset_name] = model
+        self.training_histories[dataset_name] = history
         
-        # save
-        model.save(output_dir / "final_model")
+        # save if output dir provided
+        if output_dir is not None:
+            output_dir = Path(output_dir) / dataset_name
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            model.save_pretrained(output_dir / "model")
+            
+            with open(output_dir / "training_history.json", 'w') as f:
+                json.dump(history, f, indent=2)
         
-        return model
+        return model, {
+            'history': history,
+            'final_accuracy': final_metrics['accuracy'],
+            'final_f1': final_metrics['f1'],
+            'final_auc': final_metrics['auc'],
+            'best_accuracy': best_eval_acc
+        }
     
     def train_all_datasets(
         self,
         datasets: Dict[str, Tuple[Any, Any]],
-        output_dir: Path
+        output_dir: Optional[Path] = None
     ) -> Dict[str, Any]:
         """
         train models on all datasets.
@@ -610,19 +885,23 @@ class DatasetSpecificTrainer:
             output_dir: base output directory
         
         returns:
-            dict mapping dataset name to trained model
+            dict mapping dataset name to (model, metrics)
         """
+        results = {}
+        
         for dataset_name, (train_ds, eval_ds) in datasets.items():
-            print(f"\ntraining on {dataset_name}...")
-            
-            self.train_on_dataset(
+            model, metrics = self.train_on_dataset(
                 dataset_name,
                 train_ds,
                 eval_ds,
                 output_dir
             )
+            results[dataset_name] = {
+                'model': model,
+                'metrics': metrics
+            }
         
-        return self.trained_models
+        return results
 
 
 def run_cross_dataset_analysis(
