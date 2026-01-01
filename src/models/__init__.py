@@ -33,6 +33,7 @@ from .generalization import (
     ClinicalAlignmentAnalyzer,
     GeneralizationInterpretabilityAnalyzer,
     DatasetSpecificTrainer,
+    DataCollatorForSequenceClassification,
     run_cross_dataset_analysis
 )
 
@@ -64,5 +65,6 @@ __all__ = [
     'ClinicalAlignmentAnalyzer',
     'GeneralizationInterpretabilityAnalyzer',
     'DatasetSpecificTrainer',
+    'DataCollatorForSequenceClassification',
     'run_cross_dataset_analysis'
 ]

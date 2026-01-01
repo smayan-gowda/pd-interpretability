@@ -671,6 +671,77 @@ class ActivationPatcher:
         
         return ablation_effects
 
+    def run_position_patching(
+        self,
+        clean_input: torch.Tensor,
+        corrupted_input: torch.Tensor,
+        clean_label: int,
+        layer_idx: int,
+        n_positions: int = 20
+    ) -> Dict[int, float]:
+        """
+        patch individual positions within a layer.
+        
+        tests which sequence positions are most important.
+        
+        args:
+            clean_input: clean audio
+            corrupted_input: corrupted audio
+            clean_label: clean label
+            layer_idx: layer to patch positions in
+            n_positions: number of positions to sample
+        
+        returns:
+            dict mapping position index to recovery score
+        """
+        clean_acts, clean_logits, _ = self.get_clean_activations(clean_input)
+        
+        corrupted_input_batch = corrupted_input.to(self.device)
+        if corrupted_input_batch.dim() == 1:
+            corrupted_input_batch = corrupted_input_batch.unsqueeze(0)
+        
+        corrupted_logits = self.model(corrupted_input_batch).logits
+        
+        clean_logit_diff = (
+            clean_logits[0, clean_label] - clean_logits[0, 1 - clean_label]
+        ).item()
+        
+        corrupted_logit_diff = (
+            corrupted_logits[0, clean_label] - corrupted_logits[0, 1 - clean_label]
+        ).item()
+        
+        total_effect = clean_logit_diff - corrupted_logit_diff
+        
+        # get sequence length from cached activation
+        clean_act = clean_acts[f'layer_{layer_idx}']
+        seq_len = clean_act.shape[1]
+        
+        # sample positions evenly across sequence
+        if n_positions >= seq_len:
+            positions = list(range(seq_len))
+        else:
+            positions = np.linspace(0, seq_len - 1, n_positions, dtype=int).tolist()
+        
+        position_recoveries = {}
+        
+        for pos in positions:
+            patched_logits = self.patch_position(
+                corrupted_input, clean_act, layer_idx, pos
+            )
+            
+            patched_logit_diff = (
+                patched_logits[0, clean_label] - patched_logits[0, 1 - clean_label]
+            ).item()
+            
+            if abs(total_effect) > 1e-6:
+                recovery = (patched_logit_diff - corrupted_logit_diff) / total_effect
+            else:
+                recovery = 0.0
+            
+            position_recoveries[pos] = recovery
+        
+        return position_recoveries
+
     def run_batch_patching(
         self,
         clean_inputs: List[torch.Tensor],
@@ -823,67 +894,28 @@ class ActivationPatcher:
         else:
             correlation, p_value = 0.0, 1.0
         
+        # detailed interpretation
+        if np.isnan(correlation):
+            interpretation = "undefined (insufficient variance)"
+        elif correlation > 0.7 and p_value < 0.05:
+            interpretation = "high concordance - patching and ablation strongly agree on layer importance"
+        elif correlation > 0.4 and p_value < 0.1:
+            interpretation = "moderate concordance - reasonable agreement between methods"
+        elif correlation > 0.2:
+            interpretation = "weak concordance - methods show some agreement"
+        else:
+            interpretation = "low concordance - methods disagree on component importance"
+        
         return {
             'ablation_effects': ablation_summary,
             'concordance': {
                 'spearman_correlation': float(correlation),
                 'p_value': float(p_value),
-                'interpretation': 'high' if correlation > 0.7 else 'moderate' if correlation > 0.4 else 'low'
+                'interpretation': interpretation,
+                'patching_ranks': patching_ranks,
+                'ablation_ranks': ablation_ranks
             }
         }
-        corrupted_inputs: List[torch.Tensor],
-        clean_labels: List[int]
-    ) -> Dict[int, Dict[str, float]]:
-        """
-        run patching on multiple (clean, corrupted) pairs.
-
-        args:
-            clean_inputs: list of clean audio tensors
-            corrupted_inputs: list of corrupted audio tensors
-            clean_labels: list of clean labels
-
-        returns:
-            dict mapping layer_idx to recovery statistics
-        """
-        layer_recoveries = {i: [] for i in range(self.num_layers)}
-
-        for clean, corrupted, label in tqdm(
-            zip(clean_inputs, corrupted_inputs, clean_labels),
-            total=len(clean_inputs),
-            desc="patching experiments"
-        ):
-            try:
-                results = self.run_layer_patching(clean, corrupted, label)
-
-                for layer_idx, recovery in results.items():
-                    layer_recoveries[layer_idx].append(recovery)
-
-            except Exception as e:
-                warnings.warn(f"patching failed: {e}")
-
-        summary = {}
-
-        for layer_idx in range(self.num_layers):
-            recoveries = layer_recoveries[layer_idx]
-
-            if len(recoveries) > 0:
-                summary[layer_idx] = {
-                    'mean_recovery': np.mean(recoveries),
-                    'std_recovery': np.std(recoveries),
-                    'median_recovery': np.median(recoveries),
-                    'min_recovery': np.min(recoveries),
-                    'max_recovery': np.max(recoveries)
-                }
-            else:
-                summary[layer_idx] = {
-                    'mean_recovery': 0.0,
-                    'std_recovery': 0.0,
-                    'median_recovery': 0.0,
-                    'min_recovery': 0.0,
-                    'max_recovery': 0.0
-                }
-
-        return summary
 
 
 class AttentionHeadPatcher:
