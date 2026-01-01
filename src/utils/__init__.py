@@ -61,7 +61,20 @@ __all__ = [
     'ExperimentTracker',
     'create_experiment_id',
     'load_experiment',
-    'list_experiments'
+    'list_experiments',
+    # results aggregation
+    'ExperimentMetadata',
+    'ProbingResult',
+    'PatchingResult',
+    'ClinicalProbingResult',
+    'ResultsAggregator',
+    'HypothesisTester',
+    'aggregate_multiple_experiments',
+    # publication figures
+    'FigureGenerator',
+    'set_publication_style',
+    'create_poster_figure',
+    'PALETTES'
 ]
 
 # experiment tracking
@@ -72,4 +85,23 @@ from .experiment import (
     create_experiment_id,
     load_experiment,
     list_experiments
+)
+
+# results aggregation
+from .results import (
+    ExperimentMetadata,
+    ProbingResult,
+    PatchingResult,
+    ClinicalProbingResult,
+    ResultsAggregator,
+    HypothesisTester,
+    aggregate_multiple_experiments
+)
+
+# publication figures
+from .figures import (
+    FigureGenerator,
+    set_publication_style,
+    create_poster_figure,
+    PALETTES
 )
