@@ -1,0 +1,244 @@
+# experiment configuration for pd-interpretability
+# mechanistic interpretability of wav2vec2 for parkinson's disease detection
+
+# project metadata
+project:
+  name: pd-interpretability
+  version: 1.0.0
+  description: probing, patching, and predicting - mechanistic interpretability of wav2vec2
+
+# random seeds for reproducibility
+random_seeds:
+  global: 42
+  data_split: 42
+  model_training: 42
+  probing: 42
+
+# data configuration
+data:
+  # primary dataset paths
+  datasets:
+    italian_pvs:
+      path: data/raw/italian_pvs
+      enabled: true
+      tasks: [vowel_a, vowel_e, vowel_i, vowel_o, vowel_u]
+      primary_task: vowel_a
+    
+    mdvr_kcl:
+      path: data/raw/mdvr-kcl
+      enabled: true
+      tasks: [reading, spontaneous]
+      primary_task: reading
+    
+    arkansas:
+      path: data/raw/arkansas (figshare)
+      enabled: true
+      tasks: [vowel_ah]
+      primary_task: vowel_ah
+    
+    neurovoz:
+      path: data/raw/neurovoz
+      enabled: false
+      tasks: [vowel_a, ddk_pataka, monologue]
+      primary_task: vowel_a
+    
+    pc_gita:
+      path: data/raw/pc_gita
+      enabled: false
+      tasks: [vowel_a, ddk_pataka, sentence]
+      primary_task: vowel_a
+    
+    ewa_db:
+      path: data/raw/ewa_db
+      enabled: false
+      tasks: [vowel_a, ddk_pa, naming]
+      primary_task: vowel_a
+
+  # audio preprocessing
+  preprocessing:
+    target_sr: 16000
+    segment_duration: 3.0  # seconds
+    segment_overlap: 0.5  # fraction
+    min_duration: 0.5  # minimum segment duration
+    max_duration: 10.0  # maximum audio duration
+    normalize_audio: true
+    remove_silence: true
+    apply_vad: true
+    vad_threshold: 0.01
+
+  # data splitting (subject-wise to prevent leakage)
+  splitting:
+    test_size: 0.15
+    val_size: 0.15
+    stratify: true
+    stratify_by_severity: false  # use H&Y stage if available
+
+  # output paths
+  output:
+    processed_audio: data/processed
+    clinical_features: data/clinical_features
+    activations: data/activations
+
+# model configuration
+model:
+  # base model
+  name: facebook/wav2vec2-base-960h
+  num_labels: 2  # PD vs HC
+  
+  # architecture details
+  hidden_size: 768
+  num_layers: 12
+  num_attention_heads: 12
+  
+  # fine-tuning strategy
+  freeze_feature_extractor: true
+  freeze_encoder_layers: 0  # 0 = train all transformer layers
+  classifier_dropout: 0.1
+  final_dropout: 0.1
+
+# training configuration
+training:
+  # optimizer
+  optimizer: adamw
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  
+  # scheduler
+  warmup_ratio: 0.1
+  lr_scheduler: linear
+  
+  # training parameters
+  num_epochs: 20
+  batch_size: 8
+  gradient_accumulation_steps: 4  # effective batch size = 32
+  max_grad_norm: 1.0
+  
+  # mixed precision
+  fp16: true
+  gradient_checkpointing: true
+  
+  # early stopping
+  early_stopping: true
+  patience: 3
+  
+  # evaluation
+  eval_strategy: epoch
+  save_strategy: epoch
+  save_total_limit: 3
+  metric_for_best_model: f1
+  greater_is_better: true
+  
+  # output
+  output_dir: results/checkpoints
+
+# clinical feature extraction
+clinical_features:
+  # pitch analysis
+  f0_min: 75.0
+  f0_max: 600.0
+  
+  # features to extract
+  features:
+    - f0_mean
+    - f0_std
+    - f0_range
+    - jitter_local
+    - jitter_rap
+    - jitter_ppq5
+    - shimmer_local
+    - shimmer_apq3
+    - shimmer_apq5
+    - hnr_mean
+    - f1_mean
+    - f2_mean
+    - f3_mean
+  
+  # binary thresholds for probing (clinical cutoffs)
+  binary_thresholds:
+    jitter_local: 0.01  # > threshold = abnormal
+    jitter_rap: 0.005
+    jitter_ppq5: 0.005
+    shimmer_local: 0.035
+    shimmer_apq5: 0.03
+    hnr_mean: 15.0  # < threshold = abnormal (inverted)
+    f0_std: 5.0  # > threshold = abnormal (high variability)
+
+# probing configuration
+probing:
+  # probe architecture
+  probe_type: logistic  # logistic or ridge
+  regularization: 1.0
+  max_iter: 1000
+  
+  # cross-validation
+  cv_type: leave_one_subject_out
+  n_folds: 5  # for stratified k-fold fallback
+  
+  # statistical testing
+  permutation_test: true
+  n_permutations: 1000
+  significance_level: 0.05
+  
+  # control tasks (for selectivity validation)
+  control_tasks:
+    - recording_id  # should be chance level
+    - segment_index  # arbitrary segment index
+  selectivity_threshold: 0.20  # target - control must exceed this
+  
+  # activation pooling
+  pooling: mean  # mean, max, or none
+  
+  # output
+  output_dir: results/probing
+
+# activation patching configuration
+patching:
+  # minimal pairs
+  n_pairs: 50
+  match_by_task: true
+  match_by_mfcc: true
+  mfcc_n_coeffs: 13
+  
+  # patching experiments
+  patch_layers: true
+  patch_heads: false  # attention head level patching
+  
+  # metrics
+  logit_difference_threshold: 0.5  # recovery threshold for importance
+  
+  # output
+  output_dir: results/patching
+
+# visualization configuration
+visualization:
+  # figure settings
+  dpi: 300
+  figure_format: png
+  font_size: 12
+  colormap: viridis  # colorblind friendly
+  
+  # figure output
+  output_dir: results/figures
+  
+  # plots to generate
+  plots:
+    - layerwise_probing_accuracy
+    - clinical_feature_heatmap
+    - patching_importance
+    - clinical_distributions
+    - confusion_matrix
+    - attention_patterns
+
+# evaluation targets
+targets:
+  # baseline performance
+  clinical_svm_accuracy: 0.75  # 75-85%
+  wav2vec2_accuracy: 0.85  # 80-90%
+  
+  # probing targets
+  probing_above_chance: true
+  peak_layer_identification: true
+  
+  # patching targets
+  causal_layer_identification: true
+  recovery_threshold: 0.50
