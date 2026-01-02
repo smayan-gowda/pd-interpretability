@@ -322,131 +322,125 @@ def fig5_formant_analysis(features_df, save_path):
 def fig6_feature_summary_table(features_df, save_path):
     """
     figure 6: clinical feature summary statistics table.
-    
-    publication-quality booktabs-style table matching academic standards.
+
+    publication-quality latex booktabs table compiled to pdf.
     """
+    import subprocess
+    import tempfile
+
     feature_cols = ['f0_mean', 'f0_std', 'jitter_local', 'jitter_rap', 'jitter_ppq5',
                     'shimmer_local', 'shimmer_apq3', 'shimmer_apq5', 'hnr_mean']
     available_cols = [c for c in feature_cols if c in features_df.columns]
-    
+
     hc_df = features_df[features_df['label'] == 0]
     pd_df = features_df[features_df['label'] == 1]
-    
+
     # collect data for table
     rows = []
     for feat in available_cols:
         hc_vals = hc_df[feat].dropna()
         pd_vals = pd_df[feat].dropna()
-        
+
         hc_mean, hc_std = hc_vals.mean(), hc_vals.std()
         pd_mean, pd_std = pd_vals.mean(), pd_vals.std()
-        
+
         _, p_val = stats.ttest_ind(hc_vals, pd_vals)
-        
+
         pooled_std = np.sqrt((hc_std**2 + pd_std**2) / 2)
         cohens_d = (pd_mean - hc_mean) / pooled_std if pooled_std > 0 else 0
-        
+
         rows.append({
             'feature': feat.replace('_', ' '),
             'hc_mean': hc_mean, 'hc_std': hc_std,
             'pd_mean': pd_mean, 'pd_std': pd_std,
             'p_val': p_val, 'cohens_d': cohens_d
         })
-    
-    # create figure with proper dimensions
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.axis('off')
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    
-    # table parameters
-    n_rows = len(rows) + 1  # +1 for header
-    row_height = 0.07
-    col_widths = [0.18, 0.22, 0.22, 0.12, 0.12]
-    col_positions = [0.07]
-    for w in col_widths[:-1]:
-        col_positions.append(col_positions[-1] + w)
-    
-    table_top = 0.88
-    table_bottom = table_top - n_rows * row_height
-    
-    # draw horizontal rules (booktabs style)
-    rule_kwargs = {'color': 'black', 'linewidth': 1.2}
-    thin_rule_kwargs = {'color': 'black', 'linewidth': 0.6}
-    
-    # top rule (thick)
-    ax.plot([0.05, 0.93], [table_top + 0.01, table_top + 0.01], **rule_kwargs)
-    # below header (thick)
-    ax.plot([0.05, 0.93], [table_top - row_height, table_top - row_height], **rule_kwargs)
-    # bottom rule (thick)
-    ax.plot([0.05, 0.93], [table_bottom, table_bottom], **rule_kwargs)
-    
-    # header row
-    headers = [r'\textbf{Feature}', r'\textbf{HC} $\boldsymbol{\mu}$ ($\boldsymbol{\sigma}$)', 
-               r"\textbf{PD} $\boldsymbol{\mu}$ ($\boldsymbol{\sigma}$)", 
-               r'\textbf{$p$-value}', r"\textbf{Cohen's $d$}"]
-    
-    header_y = table_top - row_height/2
-    for j, (header, x_pos) in enumerate(zip(headers, col_positions)):
-        ax.text(x_pos + col_widths[j]/2, header_y, header, 
-               ha='center', va='center', fontsize=10, fontweight='bold')
-    
-    # data rows
-    for i, row in enumerate(rows):
-        y_pos = table_top - (i + 1.5) * row_height
-        
-        # feature name (left aligned)
-        ax.text(col_positions[0] + 0.01, y_pos, row['feature'], 
-               ha='left', va='center', fontsize=9)
-        
-        # hc mean (sd)
+
+    # generate latex code
+    latex_code = r'''\documentclass[12pt]{article}
+\usepackage{booktabs}
+\usepackage{times}
+\usepackage{array}
+\usepackage[margin=0.5in]{geometry}
+\pagestyle{empty}
+\begin{document}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Feature} & \textbf{HC} $\boldsymbol{\mu}$ ($\boldsymbol{\sigma}$) & \textbf{PD} $\boldsymbol{\mu}$ ($\boldsymbol{\sigma}$) & \textbf{$p$-value} & \textbf{Cohen's $d$} \\
+\midrule
+'''
+
+    for row in rows:
+        feature_name = row['feature']
         hc_text = f"{row['hc_mean']:.4f} ({row['hc_std']:.4f})"
-        ax.text(col_positions[1] + col_widths[1]/2, y_pos, hc_text, 
-               ha='center', va='center', fontsize=9)
-        
-        # pd mean (sd)
         pd_text = f"{row['pd_mean']:.4f} ({row['pd_std']:.4f})"
-        ax.text(col_positions[2] + col_widths[2]/2, y_pos, pd_text, 
-               ha='center', va='center', fontsize=9)
-        
-        # p-value
+
+        # format p-value
         if row['p_val'] < 0.001:
-            p_text = r'$<$0.001'
-            p_weight = 'bold'
+            p_text = r'\textbf{$<$0.001}'
         elif row['p_val'] < 0.01:
-            p_text = r'$<$0.01'
-            p_weight = 'bold'
+            p_text = r'\textbf{$<$0.01}'
         elif row['p_val'] < 0.05:
-            p_text = f"{row['p_val']:.3f}"
-            p_weight = 'bold'
+            p_text = f"\\textbf{{{row['p_val']:.3f}}}"
         else:
             p_text = f"{row['p_val']:.3f}"
-            p_weight = 'normal'
-        ax.text(col_positions[3] + col_widths[3]/2, y_pos, p_text, 
-               ha='center', va='center', fontsize=9, fontweight=p_weight)
-        
-        # cohen's d
+
         d_text = f"{row['cohens_d']:.2f}"
-        ax.text(col_positions[4] + col_widths[4]/2, y_pos, d_text, 
-               ha='center', va='center', fontsize=9)
-        
-        # light horizontal rule between rows (except last)
-        if i < len(rows) - 1:
-            rule_y = table_top - (i + 2) * row_height
-            ax.plot([0.05, 0.93], [rule_y, rule_y], color='#cccccc', linewidth=0.3)
-    
-    # title
-    ax.text(0.5, 0.96, r'\textbf{Clinical Feature Summary Statistics}', 
-           ha='center', va='center', fontsize=12, fontweight='bold')
-    
-    # table note
-    ax.text(0.5, table_bottom - 0.04, 
-           r'\textit{Note:} Bold $p$-values indicate statistical significance ($p < 0.05$). HC = Healthy Controls, PD = Parkinson\'s Disease.',
-           ha='center', va='top', fontsize=8, style='italic')
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"saved: {save_path}")
+
+        latex_code += f"{feature_name} & {hc_text} & {pd_text} & {p_text} & {d_text} \\\\\n"
+
+    latex_code += r'''\bottomrule
+\end{tabular}
+\end{document}'''
+
+    # compile with pdflatex
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tex_path = Path(tmpdir) / 'table.tex'
+        pdf_path = Path(tmpdir) / 'table.pdf'
+
+        # write latex file
+        with open(tex_path, 'w') as f:
+            f.write(latex_code)
+
+        # compile to pdf
+        try:
+            result = subprocess.run(
+                ['pdflatex', '-interaction=nonstopmode', '-output-directory', tmpdir, str(tex_path)],
+                capture_output=True,
+                timeout=30
+            )
+
+            # copy pdf to final location
+            save_path = Path(save_path)
+            if pdf_path.exists():
+                if save_path.suffix == '.pdf':
+                    subprocess.run(['cp', str(pdf_path), str(save_path)], check=True)
+                    print(f"saved: {save_path}")
+                elif save_path.suffix == '.png':
+                    # convert pdf to png using imagemagick if available
+                    try:
+                        subprocess.run(
+                            ['convert', '-density', '300', str(pdf_path), '-quality', '100', str(save_path)],
+                            check=True,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=30
+                        )
+                        print(f"saved: {save_path}")
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        # fallback: just copy the pdf
+                        pdf_save = save_path.with_suffix('.pdf')
+                        subprocess.run(['cp', str(pdf_path), str(pdf_save)], check=True)
+                        print(f"warning: imagemagick not available, saved as pdf: {pdf_save}")
+            else:
+                print(f"error: pdf not generated for {save_path}")
+                print(f"pdflatex return code: {result.returncode}")
+                print(f"pdflatex output (last 1000 chars):\n{result.stdout.decode()[-1000:]}")
+
+        except FileNotFoundError:
+            print("error: pdflatex not found. install texlive.")
+        except Exception as e:
+            print(f"unexpected error: {e}")
 
 
 def main():
