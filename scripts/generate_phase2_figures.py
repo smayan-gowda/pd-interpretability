@@ -204,20 +204,19 @@ def fig3_statistical_comparison(results, features_df, save_path):
         p_val = feat_stat.get('p_value', 1.0)
         cohens_d = feat_stat.get('cohens_d', 0)
         
+        # determine significance level
         if p_val < 0.001:
-            sig_text = '***'
+            sig_text = 'p < 0.001'
         elif p_val < 0.01:
-            sig_text = '**'
+            sig_text = 'p < 0.01'
         elif p_val < 0.05:
-            sig_text = '*'
+            sig_text = 'p < 0.05'
         else:
-            sig_text = 'ns'
-        
-        y_max = max(hc_data.max(), pd_data.max())
-        ax.text(0.5, y_max * 1.05, sig_text, ha='center', fontsize=12, fontweight='bold')
+            sig_text = 'n.s.'
         
         ax.set_ylabel(feature.replace('_', ' '))
-        ax.set_title(f"Cohen's d = {cohens_d:.2f}")
+        # use plain text title to avoid font rendering issues with italic d
+        ax.set_title(f"Cohen's d = {cohens_d:.2f}, {sig_text}", fontsize=9)
     
     fig.suptitle('Clinical Feature Distributions: PD vs Healthy Controls', fontsize=11, y=1.02)
     plt.tight_layout()
@@ -344,7 +343,7 @@ def fig7_feature_correlation(features_df, save_path):
     
     heatmap showing inter-feature correlations.
     """
-    fig, ax = plt.subplots(figsize=(8, 7))
+    fig, ax = plt.subplots(figsize=(12, 10))
     
     feature_cols = [c for c in features_df.columns if c not in ['subject_id', 'label', 'path', 'diagnosis']]
     corr_matrix = features_df[feature_cols].corr()
@@ -355,17 +354,19 @@ def fig7_feature_correlation(features_df, save_path):
         corr_matrix, mask=mask, annot=True, fmt='.2f',
         cmap='RdBu_r', center=0, vmin=-1, vmax=1,
         ax=ax, square=True, linewidths=0.5,
-        cbar_kws={'shrink': 0.8, 'label': 'Correlation'},
-        annot_kws={'size': 7}
+        cbar_kws={'shrink': 0.7, 'label': 'Correlation'},
+        annot_kws={'size': 6}
     )
     
-    ax.set_xticklabels([l.get_text().replace('_', '\n') for l in ax.get_xticklabels()], 
-                       rotation=45, ha='right', fontsize=8)
-    ax.set_yticklabels([l.get_text().replace('_', '\n') for l in ax.get_yticklabels()], 
-                       rotation=0, fontsize=8)
+    # format x labels with underscores replaced by spaces, rotated for readability
+    ax.set_xticklabels([l.get_text().replace('_', ' ') for l in ax.get_xticklabels()], 
+                       rotation=55, ha='right', fontsize=7)
+    ax.set_yticklabels([l.get_text().replace('_', ' ') for l in ax.get_yticklabels()], 
+                       rotation=0, fontsize=7)
     ax.set_title('Clinical Feature Correlation Matrix')
     
-    plt.tight_layout()
+    # add extra bottom margin to prevent text cutoff
+    plt.subplots_adjust(bottom=0.25, left=0.2)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"saved: {save_path}")
