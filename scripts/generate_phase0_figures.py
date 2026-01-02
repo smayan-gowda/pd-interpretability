@@ -13,17 +13,23 @@ sys.path.insert(0, str(project_root))
 
 import numpy as np
 import pandas as pd
+import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 from collections import defaultdict
-import torchaudio
+
+# add latex to path if not present
+os.environ['PATH'] = '/Library/TeX/texbin:' + os.environ.get('PATH', '')
 
 
 def set_publication_style():
-    """configure matplotlib for publication-quality figures."""
+    """configure matplotlib for publication-quality figures with latex."""
     plt.rcParams.update({
+        'text.usetex': True,
+        'text.latex.preamble': r'\usepackage{amsmath}\usepackage{amssymb}',
         'font.family': 'serif',
-        'font.serif': ['Times New Roman', 'Times', 'DejaVu Serif'],
+        'font.serif': ['Times', 'Times New Roman', 'DejaVu Serif'],
         'font.size': 10,
         'axes.titlesize': 11,
         'axes.labelsize': 10,
@@ -41,7 +47,6 @@ def set_publication_style():
         'savefig.dpi': 300,
         'savefig.bbox': 'tight',
         'savefig.pad_inches': 0.1,
-        'mathtext.fontset': 'stix',
     })
 
 
@@ -148,7 +153,7 @@ def fig1_dataset_composition(stats_df, save_path):
     ax1 = axes[0]
     subject_counts = stats_df.groupby('diagnosis').size()
     colors = {'hc': '#2ecc71', 'pd': '#e74c3c'}
-    bars = ax1.bar(['Healthy Controls', "Parkinson's Disease"], 
+    bars = ax1.bar([r'Healthy Controls', r"Parkinson's Disease"], 
                    [subject_counts.get('hc', 0), subject_counts.get('pd', 0)],
                    color=[colors['hc'], colors['pd']], edgecolor='black', linewidth=0.5)
     
@@ -157,14 +162,14 @@ def fig1_dataset_composition(stats_df, save_path):
         ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
                 str(count), ha='center', va='bottom', fontsize=10, fontweight='bold')
     
-    ax1.set_ylabel('Number of Subjects')
-    ax1.set_title('Subject Distribution by Diagnosis')
+    ax1.set_ylabel(r'Number of Subjects')
+    ax1.set_title(r'Subject Distribution by Diagnosis')
     ax1.set_ylim(0, max(subject_counts) * 1.15)
     
     # samples by diagnosis
     ax2 = axes[1]
     sample_counts = stats_df.groupby('diagnosis')['n_samples'].sum()
-    bars2 = ax2.bar(['Healthy Controls', "Parkinson's Disease"], 
+    bars2 = ax2.bar([r'Healthy Controls', r"Parkinson's Disease"], 
                     [sample_counts.get('hc', 0), sample_counts.get('pd', 0)],
                     color=[colors['hc'], colors['pd']], edgecolor='black', linewidth=0.5)
     
@@ -172,11 +177,11 @@ def fig1_dataset_composition(stats_df, save_path):
         ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 5, 
                 str(count), ha='center', va='bottom', fontsize=10, fontweight='bold')
     
-    ax2.set_ylabel('Number of Audio Samples')
-    ax2.set_title('Audio Sample Distribution by Diagnosis')
+    ax2.set_ylabel(r'Number of Audio Samples')
+    ax2.set_title(r'Audio Sample Distribution by Diagnosis')
     ax2.set_ylim(0, max(sample_counts) * 1.15)
     
-    fig.suptitle('Italian PVS Dataset Composition', fontsize=12, y=1.02)
+    fig.suptitle(r'Italian PVS Dataset Composition', fontsize=12, y=1.02)
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -196,19 +201,19 @@ def fig2_samples_per_subject(stats_df, save_path):
     
     bins = range(0, max(stats_df['n_samples']) + 5, 2)
     
-    ax.hist(hc_samples, bins=bins, alpha=0.7, label='Healthy Controls', 
+    ax.hist(hc_samples, bins=bins, alpha=0.7, label=r'Healthy Controls', 
             color='#2ecc71', edgecolor='black', linewidth=0.5)
-    ax.hist(pd_samples, bins=bins, alpha=0.7, label="Parkinson's Disease", 
+    ax.hist(pd_samples, bins=bins, alpha=0.7, label=r"Parkinson's Disease", 
             color='#e74c3c', edgecolor='black', linewidth=0.5)
     
     ax.axvline(hc_samples.mean(), color='#27ae60', linestyle='--', linewidth=1.5, 
-               label=f'HC mean: {hc_samples.mean():.1f}')
+               label=r'HC $\mu$: %.1f' % hc_samples.mean())
     ax.axvline(pd_samples.mean(), color='#c0392b', linestyle='--', linewidth=1.5, 
-               label=f'PD mean: {pd_samples.mean():.1f}')
+               label=r'PD $\mu$: %.1f' % pd_samples.mean())
     
-    ax.set_xlabel('Number of Audio Samples per Subject')
-    ax.set_ylabel('Number of Subjects')
-    ax.set_title('Distribution of Audio Samples per Subject')
+    ax.set_xlabel(r'Number of Audio Samples per Subject')
+    ax.set_ylabel(r'Number of Subjects')
+    ax.set_title(r'Distribution of Audio Samples per Subject')
     ax.legend(loc='upper right')
     
     plt.tight_layout()
@@ -247,7 +252,7 @@ def fig3_age_group_distribution(stats_df, save_path):
     
     # add total annotation
     total = sum(values)
-    ax.annotate(f'Total: {total} subjects', xy=(0.98, 0.95), xycoords='axes fraction',
+    ax.annotate(r'Total: %d subjects' % total, xy=(0.98, 0.95), xycoords='axes fraction',
                 ha='right', va='top', fontsize=9, 
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
@@ -261,45 +266,87 @@ def fig4_dataset_summary_table(stats_df, save_path):
     """
     figure 4: dataset summary statistics table.
     
-    visual table showing key dataset statistics.
+    publication-quality booktabs-style table matching academic standards.
     """
-    fig, ax = plt.subplots(figsize=(8, 3))
-    ax.axis('off')
-    
     hc_df = stats_df[stats_df['diagnosis'] == 'hc']
     pd_df = stats_df[stats_df['diagnosis'] == 'pd']
     
-    table_data = [
-        ['Metric', 'Healthy Controls', "Parkinson's Disease", 'Total'],
-        ['Subjects', str(len(hc_df)), str(len(pd_df)), str(len(stats_df))],
-        ['Audio Samples', str(hc_df['n_samples'].sum()), str(pd_df['n_samples'].sum()), 
-         str(stats_df['n_samples'].sum())],
-        ['Samples/Subject (mean)', f"{hc_df['n_samples'].mean():.1f}", 
-         f"{pd_df['n_samples'].mean():.1f}", f"{stats_df['n_samples'].mean():.1f}"],
-        ['Samples/Subject (std)', f"{hc_df['n_samples'].std():.1f}", 
-         f"{pd_df['n_samples'].std():.1f}", f"{stats_df['n_samples'].std():.1f}"],
+    # collect data
+    data_rows = [
+        ('Subjects', len(hc_df), len(pd_df), len(stats_df)),
+        ('Audio Samples', hc_df['n_samples'].sum(), pd_df['n_samples'].sum(), stats_df['n_samples'].sum()),
+        (r'Samples/Subject ($\mu$)', f"{hc_df['n_samples'].mean():.1f}", 
+         f"{pd_df['n_samples'].mean():.1f}", f"{stats_df['n_samples'].mean():.1f}"),
+        (r'Samples/Subject ($\sigma$)', f"{hc_df['n_samples'].std():.1f}", 
+         f"{pd_df['n_samples'].std():.1f}", f"{stats_df['n_samples'].std():.1f}"),
     ]
     
-    table = ax.table(cellText=table_data, loc='center', cellLoc='center',
-                     colWidths=[0.3, 0.25, 0.25, 0.2])
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1.2, 1.8)
+    # create figure
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.axis('off')
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     
-    # style header row
-    for j in range(4):
-        table[(0, j)].set_facecolor('#34495e')
-        table[(0, j)].set_text_props(color='white', fontweight='bold')
+    # table parameters
+    n_rows = len(data_rows) + 1  # +1 for header
+    row_height = 0.10
+    col_widths = [0.25, 0.20, 0.25, 0.15]
+    col_positions = [0.08]
+    for w in col_widths[:-1]:
+        col_positions.append(col_positions[-1] + w)
     
-    # alternate row colors
-    for i in range(1, 5):
-        for j in range(4):
-            if i % 2 == 0:
-                table[(i, j)].set_facecolor('#ecf0f1')
+    table_top = 0.78
+    table_bottom = table_top - n_rows * row_height
     
-    ax.set_title('Italian PVS Dataset Summary Statistics', fontsize=12, pad=20)
+    # draw horizontal rules (booktabs style)
+    rule_kwargs = {'color': 'black', 'linewidth': 1.2}
     
-    plt.tight_layout()
+    # top rule (thick)
+    ax.plot([0.06, 0.92], [table_top + 0.02, table_top + 0.02], **rule_kwargs)
+    # below header (thick)
+    ax.plot([0.06, 0.92], [table_top - row_height, table_top - row_height], **rule_kwargs)
+    # bottom rule (thick)
+    ax.plot([0.06, 0.92], [table_bottom, table_bottom], **rule_kwargs)
+    
+    # header row
+    headers = [r'\textbf{Metric}', r'\textbf{Healthy Controls}', 
+               r"\textbf{Parkinson's Disease}", r'\textbf{Total}']
+    
+    header_y = table_top - row_height/2
+    for j, (header, x_pos) in enumerate(zip(headers, col_positions)):
+        ax.text(x_pos + col_widths[j]/2, header_y, header, 
+               ha='center', va='center', fontsize=11, fontweight='bold')
+    
+    # data rows
+    for i, (metric, hc_val, pd_val, total_val) in enumerate(data_rows):
+        y_pos = table_top - (i + 1.5) * row_height
+        
+        # metric name (left aligned)
+        ax.text(col_positions[0] + 0.01, y_pos, metric, 
+               ha='left', va='center', fontsize=10)
+        
+        # values (center aligned)
+        ax.text(col_positions[1] + col_widths[1]/2, y_pos, str(hc_val), 
+               ha='center', va='center', fontsize=10)
+        ax.text(col_positions[2] + col_widths[2]/2, y_pos, str(pd_val), 
+               ha='center', va='center', fontsize=10)
+        ax.text(col_positions[3] + col_widths[3]/2, y_pos, str(total_val), 
+               ha='center', va='center', fontsize=10, fontweight='bold')
+        
+        # light horizontal rule between rows (except last)
+        if i < len(data_rows) - 1:
+            rule_y = table_top - (i + 2) * row_height
+            ax.plot([0.06, 0.92], [rule_y, rule_y], color='#cccccc', linewidth=0.3)
+    
+    # title
+    ax.text(0.5, 0.92, r'\textbf{Italian PVS Dataset Summary Statistics}', 
+           ha='center', va='center', fontsize=12, fontweight='bold')
+    
+    # table note
+    ax.text(0.5, table_bottom - 0.05, 
+           r'\textit{Note:} $\mu$ = mean, $\sigma$ = standard deviation. HC = Healthy Controls, PD = Parkinson\'s Disease.',
+           ha='center', va='top', fontsize=9, style='italic')
+    
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"saved: {save_path}")
@@ -314,13 +361,13 @@ def fig5_preprocessing_pipeline(save_path):
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.axis('off')
     
-    # define pipeline steps
+    # define pipeline steps - two lines per step for layout
     steps = [
-        ('Raw Audio\n(Various formats)', '#3498db'),
-        ('Load & Resample\n(16 kHz mono)', '#9b59b6'),
-        ('Duration Filter\n(0.5-10s)', '#e74c3c'),
-        ('Amplitude\nNormalization', '#f39c12'),
-        ('Wav2Vec2\nReady', '#2ecc71'),
+        (['Raw Audio', '(Various formats)'], '#3498db'),
+        (['Load \\& Resample', '(16 kHz mono)'], '#9b59b6'),
+        (['Duration Filter', '(0.5--10s)'], '#e74c3c'),
+        (['Amplitude', 'Normalization'], '#f39c12'),
+        (['Wav2Vec2', 'Ready'], '#2ecc71'),
     ]
     
     n_steps = len(steps)
@@ -328,7 +375,7 @@ def fig5_preprocessing_pipeline(save_path):
     box_height = 0.6
     spacing = (1 - n_steps * box_width) / (n_steps + 1)
     
-    for i, (label, color) in enumerate(steps):
+    for i, (label_lines, color) in enumerate(steps):
         x = spacing + i * (box_width + spacing)
         y = 0.2
         
@@ -338,10 +385,13 @@ def fig5_preprocessing_pipeline(save_path):
                              linewidth=1.5, alpha=0.8)
         ax.add_patch(rect)
         
-        # add text
-        ax.text(x + box_width/2, y + box_height/2, label, 
+        # add text - two lines
+        ax.text(x + box_width/2, y + box_height/2 + 0.08, label_lines[0], 
                ha='center', va='center', fontsize=9, fontweight='bold',
-               color='white', wrap=True)
+               color='white')
+        ax.text(x + box_width/2, y + box_height/2 - 0.08, label_lines[1], 
+               ha='center', va='center', fontsize=8,
+               color='white')
         
         # draw arrow to next step
         if i < n_steps - 1:
@@ -353,7 +403,7 @@ def fig5_preprocessing_pipeline(save_path):
     
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.set_title('Audio Preprocessing Pipeline', fontsize=12, y=0.95)
+    ax.set_title(r'Audio Preprocessing Pipeline', fontsize=12, y=0.95)
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
