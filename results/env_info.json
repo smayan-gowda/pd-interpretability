@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-01-02T01:40:51.800399",
+  "pytorch_version": "2.9.0+cu126",
+  "cuda_available": true,
+  "gpu_name": "Tesla T4",
+  "datasets": {
+    "italian_pvs": 831
+  },
+  "model_params": {
+    "total": 94569090,
+    "trainable": 90368642,
+    "frozen": 4200448,
+    "trainable_percent": 95.55832883662093
+  }
+}
