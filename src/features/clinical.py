@@ -301,8 +301,11 @@ class ClinicalFeatureExtractor:
     def _handle_nan_values(self, features: Dict[str, float]) -> Dict[str, float]:
         """replace undefined values with nan for consistent handling."""
         for key, value in features.items():
-            if value is None or np.isinf(value) or (isinstance(value, float) and value == parselmouth.UNDEFINED):
+            if value is None:
                 features[key] = np.nan
+            elif isinstance(value, (int, float)):
+                if np.isnan(value) or np.isinf(value):
+                    features[key] = np.nan
         return features
 
     def _get_default_pitch_features(self) -> Dict[str, float]:
