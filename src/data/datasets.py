@@ -103,6 +103,16 @@ class BasePDDataset(Dataset, ABC):
     def __len__(self) -> int:
         return len(self.samples)
 
+    @property
+    def n_subjects(self) -> int:
+        """return number of unique subjects in dataset."""
+        return len(set(s['subject_id'] for s in self.samples))
+
+    @property
+    def subject_ids(self) -> List[str]:
+        """return list of unique subject ids."""
+        return list(set(s['subject_id'] for s in self.samples))
+
     def __getitem__(self, idx: int) -> Dict:
         """
         load and preprocess audio sample.
