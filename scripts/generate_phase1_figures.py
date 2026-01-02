@@ -364,6 +364,7 @@ def fig6_feature_summary_table(features_df, save_path):
 \usepackage[margin=0.5in]{geometry}
 \pagestyle{empty}
 \begin{document}
+\renewcommand{\arraystretch}{1.3}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
 \textbf{Feature} & \textbf{HC} $\boldsymbol{\mu}$ ($\boldsymbol{\sigma}$) & \textbf{PD} $\boldsymbol{\mu}$ ($\boldsymbol{\sigma}$) & \textbf{$p$-value} & \textbf{Cohen's $d$} \\

@@ -292,6 +292,7 @@ def fig4_dataset_summary_table(stats_df, save_path):
 \usepackage[margin=0.5in]{geometry}
 \pagestyle{empty}
 \begin{document}
+\renewcommand{\arraystretch}{1.3}
 \begin{tabular}{@{}lccc@{}}
 \toprule
 \textbf{Metric} & \textbf{Healthy Controls} & \textbf{Parkinson's Disease} & \textbf{Total} \\
