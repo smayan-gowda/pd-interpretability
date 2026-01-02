@@ -328,8 +328,14 @@ def fig6_feature_summary_table(features_df, save_path):
     import subprocess
     import tempfile
 
-    feature_cols = ['f0_mean', 'f0_std', 'jitter_local', 'jitter_rap', 'jitter_ppq5',
-                    'shimmer_local', 'shimmer_apq3', 'shimmer_apq5', 'hnr_mean']
+    # use same features as baseline (17 features)
+    feature_cols = [
+        'f0_mean', 'f0_std', 'f0_min', 'f0_max', 'f0_range',
+        'voicing_fraction',
+        'jitter_local', 'jitter_rap', 'jitter_ppq5', 'jitter_ddp',
+        'shimmer_local', 'shimmer_apq3', 'shimmer_apq5', 'shimmer_apq11', 'shimmer_dda',
+        'hnr_mean', 'hnr_std'
+    ]
     available_cols = [c for c in feature_cols if c in features_df.columns]
 
     hc_df = features_df[features_df['label'] == 0]
