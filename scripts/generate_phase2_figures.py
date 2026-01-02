@@ -14,17 +14,24 @@ sys.path.insert(0, str(project_root))
 import json
 import numpy as np
 import pandas as pd
+import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 from scipy import stats
 from sklearn.metrics import roc_curve, auc
 
+# add latex to path if not present
+os.environ['PATH'] = '/Library/TeX/texbin:' + os.environ.get('PATH', '')
+
 
 def set_publication_style():
-    """configure matplotlib for publication-quality figures."""
+    """configure matplotlib for publication-quality figures with latex."""
     plt.rcParams.update({
+        'text.usetex': True,
+        'text.latex.preamble': r'\usepackage{amsmath}\usepackage{amssymb}',
         'font.family': 'serif',
-        'font.serif': ['Times New Roman', 'Times', 'DejaVu Serif'],
+        'font.serif': ['Times', 'Times New Roman', 'DejaVu Serif'],
         'font.size': 10,
         'axes.titlesize': 11,
         'axes.labelsize': 10,
@@ -42,7 +49,6 @@ def set_publication_style():
         'savefig.dpi': 300,
         'savefig.bbox': 'tight',
         'savefig.pad_inches': 0.1,
-        'mathtext.fontset': 'stix',
     })
 
 
@@ -84,11 +90,11 @@ def fig1_feature_importance(results, save_path):
     
     ax.set_yticks(range(len(features)))
     ax.set_yticklabels([f.replace('_', ' ') for f in features])
-    ax.set_xlabel('Feature Importance')
-    ax.set_title('Clinical Feature Importance for PD Classification')
+    ax.set_xlabel(r'Feature Importance')
+    ax.set_title(r'Clinical Feature Importance for PD Classification')
     ax.invert_yaxis()
     
-    ax.axvline(x=np.mean(values), color='red', linestyle='--', linewidth=1, alpha=0.7, label='mean')
+    ax.axvline(x=np.mean(values), color='red', linestyle='--', linewidth=1, alpha=0.7, label=r'mean')
     ax.legend(loc='lower right')
     
     plt.tight_layout()
@@ -144,8 +150,8 @@ def fig2_confusion_matrix(features_df, save_path):
     
     sns.heatmap(
         cm, annot=True, fmt='d', cmap='Blues',
-        xticklabels=['Healthy', "Parkinson's"],
-        yticklabels=['Healthy', "Parkinson's"],
+        xticklabels=[r'Healthy', r"Parkinson's"],
+        yticklabels=[r'Healthy', r"Parkinson's"],
         ax=ax, cbar=False,
         linewidths=0.5, linecolor='black'
     )
@@ -153,12 +159,12 @@ def fig2_confusion_matrix(features_df, save_path):
     for i in range(2):
         for j in range(2):
             pct = cm_normalized[i, j] * 100
-            ax.text(j + 0.5, i + 0.7, f'({pct:.1f}%)', 
+            ax.text(j + 0.5, i + 0.7, r'(%.1f\%%)' % pct, 
                    ha='center', va='center', fontsize=8, color='gray')
     
-    ax.set_xlabel('Predicted Label')
-    ax.set_ylabel('True Label')
-    ax.set_title('Confusion Matrix (Random Forest, LOSO CV)')
+    ax.set_xlabel(r'Predicted Label')
+    ax.set_ylabel(r'True Label')
+    ax.set_title(r'Confusion Matrix (Random Forest, LOSO CV)')
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -198,7 +204,7 @@ def fig3_statistical_comparison(results, features_df, save_path):
                 parts[partname].set_color('black')
         
         ax.set_xticks([0, 1])
-        ax.set_xticklabels(['Healthy', "Parkinson's"])
+        ax.set_xticklabels([r'Healthy', r"Parkinson's"])
         
         feat_stat = stat_results.get(feature, {})
         p_val = feat_stat.get('p_value', 1.0)
@@ -206,19 +212,18 @@ def fig3_statistical_comparison(results, features_df, save_path):
         
         # determine significance level
         if p_val < 0.001:
-            sig_text = 'p < 0.001'
+            sig_text = r'$p < 0.001$'
         elif p_val < 0.01:
-            sig_text = 'p < 0.01'
+            sig_text = r'$p < 0.01$'
         elif p_val < 0.05:
-            sig_text = 'p < 0.05'
+            sig_text = r'$p < 0.05$'
         else:
-            sig_text = 'n.s.'
+            sig_text = r'n.s.'
         
         ax.set_ylabel(feature.replace('_', ' '))
-        # use plain text title to avoid font rendering issues with italic d
-        ax.set_title(f"Cohen's d = {cohens_d:.2f}, {sig_text}", fontsize=9)
+        ax.set_title(r"Cohen's $d$ = %.2f, " % cohens_d + sig_text, fontsize=9)
     
-    fig.suptitle('Clinical Feature Distributions: PD vs Healthy Controls', fontsize=11, y=1.02)
+    fig.suptitle(r'Clinical Feature Distributions: PD vs Healthy Controls', fontsize=11, y=1.02)
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -239,19 +244,19 @@ def fig4_per_subject_accuracy(subjects_df, save_path):
     
     bins = np.linspace(0, 1, 11)
     
-    ax.hist(hc_acc, bins=bins, alpha=0.7, label=f'Healthy (n={len(hc_acc)})', 
+    ax.hist(hc_acc, bins=bins, alpha=0.7, label=r'Healthy ($n$=%d)' % len(hc_acc), 
             color='#2ecc71', edgecolor='black', linewidth=0.5)
-    ax.hist(pd_acc, bins=bins, alpha=0.7, label=f"Parkinson's (n={len(pd_acc)})", 
+    ax.hist(pd_acc, bins=bins, alpha=0.7, label=r"Parkinson's ($n$=%d)" % len(pd_acc), 
             color='#e74c3c', edgecolor='black', linewidth=0.5)
     
     ax.axvline(x=hc_acc.mean(), color='#27ae60', linestyle='--', linewidth=2, 
-               label=f'HC mean: {hc_acc.mean():.2f}')
+               label=r'HC $\mu$: %.2f' % hc_acc.mean())
     ax.axvline(x=pd_acc.mean(), color='#c0392b', linestyle='--', linewidth=2, 
-               label=f'PD mean: {pd_acc.mean():.2f}')
+               label=r'PD $\mu$: %.2f' % pd_acc.mean())
     
-    ax.set_xlabel('Classification Accuracy')
-    ax.set_ylabel('Number of Subjects')
-    ax.set_title('Per-Subject Classification Accuracy Distribution (LOSO CV)')
+    ax.set_xlabel(r'Classification Accuracy')
+    ax.set_ylabel(r'Number of Subjects')
+    ax.set_title(r'Per-Subject Classification Accuracy Distribution (LOSO CV)')
     ax.legend(loc='upper left', fontsize=8)
     ax.set_xlim([0, 1.05])
     
@@ -288,10 +293,10 @@ def fig5_model_comparison(results, save_path):
     
     for bar, acc, std in zip(bars, accuracies, stds):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std + 0.02,
-                f'{acc*100:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
+                r'%.1f\%%' % (acc*100), ha='center', va='bottom', fontsize=10, fontweight='bold')
     
-    ax.set_ylabel('Accuracy')
-    ax.set_title('Clinical Baseline Model Comparison (LOSO CV)')
+    ax.set_ylabel(r'Accuracy')
+    ax.set_title(r'Clinical Baseline Model Comparison (LOSO CV)')
     ax.set_ylim([0, 1.1])
     ax.legend(loc='lower right', fontsize=8)
     
@@ -314,17 +319,17 @@ def fig6_fold_performance(results, save_path):
     folds = range(1, len(rf_scores) + 1)
     
     ax.plot(folds, rf_scores, 'o-', color='#9b59b6', alpha=0.7, 
-            label=f"RF (mean: {np.mean(rf_scores):.2f})", markersize=4)
+            label=r"RF ($\mu$: %.2f)" % np.mean(rf_scores), markersize=4)
     ax.plot(folds, svm_scores, 's-', color='#3498db', alpha=0.7, 
-            label=f"SVM (mean: {np.mean(svm_scores):.2f})", markersize=4)
+            label=r"SVM ($\mu$: %.2f)" % np.mean(svm_scores), markersize=4)
     
     ax.axhline(y=np.mean(rf_scores), color='#9b59b6', linestyle='--', alpha=0.5)
     ax.axhline(y=np.mean(svm_scores), color='#3498db', linestyle='--', alpha=0.5)
     ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5, label='Chance')
     
-    ax.set_xlabel('Fold (Subject Left Out)')
-    ax.set_ylabel('Accuracy')
-    ax.set_title('Leave-One-Subject-Out Cross-Validation Performance')
+    ax.set_xlabel(r'Fold (Subject Left Out)')
+    ax.set_ylabel(r'Accuracy')
+    ax.set_title(r'Leave-One-Subject-Out Cross-Validation Performance')
     ax.set_xlim([0, len(folds) + 1])
     ax.set_ylim([0, 1.05])
     ax.legend(loc='lower right', fontsize=8)
@@ -363,7 +368,7 @@ def fig7_feature_correlation(features_df, save_path):
                        rotation=55, ha='right', fontsize=7)
     ax.set_yticklabels([l.get_text().replace('_', ' ') for l in ax.get_yticklabels()], 
                        rotation=0, fontsize=7)
-    ax.set_title('Clinical Feature Correlation Matrix')
+    ax.set_title(r'Clinical Feature Correlation Matrix')
     
     # add extra bottom margin to prevent text cutoff
     plt.subplots_adjust(bottom=0.25, left=0.2)
