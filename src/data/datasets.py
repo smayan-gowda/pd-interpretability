@@ -238,20 +238,25 @@ class BasePDDataset(Dataset, ABC):
             random_state=random_state
         )
 
-        if stratify:
-            train_val_labels = [
-                self.samples[self._get_first_sample_idx(sid)]['label']
-                for sid in train_val_subjects
-            ]
+        # handle case where val_size is 0
+        if val_size == 0 or val_size is None:
+            train_subjects = train_val_subjects
+            val_subjects = []
         else:
-            train_val_labels = None
+            if stratify:
+                train_val_labels = [
+                    self.samples[self._get_first_sample_idx(sid)]['label']
+                    for sid in train_val_subjects
+                ]
+            else:
+                train_val_labels = None
 
-        train_subjects, val_subjects = train_test_split(
-            train_val_subjects,
-            test_size=val_size / (1 - test_size),
-            stratify=train_val_labels,
-            random_state=random_state
-        )
+            train_subjects, val_subjects = train_test_split(
+                train_val_subjects,
+                test_size=val_size / (1 - test_size),
+                stratify=train_val_labels,
+                random_state=random_state
+            )
 
         train_indices = [
             i for i, s in enumerate(self.samples)
