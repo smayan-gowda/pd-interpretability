@@ -817,81 +817,193 @@ class NeuroVozDataset(BasePDDataset):
     """
     neurovoz spanish parkinson's speech dataset.
 
-    structure:
-        root_dir/
-        ├── metadata.csv
-        ├── PD/
-        │   ├── subject_001/
-        │   │   ├── vowel_a.wav
-        │   │   ├── ddk_pa.wav
-        │   │   ├── monologue.wav
-        │   │   └── ...
+    actual structure:
+        root_dir/ (should point to data/raw/neurovoz)
+        ├── audios/  (FLAT directory with all WAV files)
+        │   ├── HC_A1_0034.wav  (naming: {HC|PD}_{TASK}_{ID}.wav)
+        │   ├── PD_FREE_0023.wav
         │   └── ...
-        └── HC/
+        └── metadata/
+            ├── metadata_hc.csv  (54 HC subjects with clinical data)
+            └── metadata_pd.csv  (54 PD subjects with UPDRS, H-Y, symptoms)
 
-    total: 108 subjects (54 pd, 54 hc), 2,903 audio files
-    tasks: sustained vowels, ddk (pa, ta, ka, pataka), monologue
+    total: 108 subjects (54 pd, 54 hc), ~2,900 audio files
+    tasks: sustained vowels (A1-A3, E1-E3, I1-I3, O1-O3, U1-U3),
+           spanish words (CALLE, CARMEN, DIABLO, etc.), FREE speech
+
+    metadata includes: UPDRS scale, Hoehn & Yahr stadium, disease duration,
+                      symptoms (tremor, dysphagia, hypophonic voice), demographics
     """
 
     def _load_samples(self) -> List[Dict]:
-        """load neurovoz samples."""
+        """load neurovoz samples from flat directory with metadata integration."""
         samples = []
 
-        for diagnosis, label in [("PD", 1), ("HC", 0)]:
-            diagnosis_dir = self.root_dir / diagnosis
+        # determine audio directory (can pass neurovoz root or audios directly)
+        if self.root_dir.name == 'audios':
+            audio_dir = self.root_dir
+            metadata_dir = self.root_dir.parent / 'metadata'
+        else:
+            audio_dir = self.root_dir / 'audios'
+            metadata_dir = self.root_dir / 'metadata'
 
-            if not diagnosis_dir.exists():
-                warnings.warn(f"directory not found: {diagnosis_dir}")
+        if not audio_dir.exists():
+            raise FileNotFoundError(f"audios directory not found: {audio_dir}")
+
+        # load metadata CSVs
+        metadata = self._load_metadata_files(metadata_dir)
+
+        # load audio files from flat audios directory
+        for audio_file in sorted(audio_dir.glob("*.wav")):
+            if audio_file.name.startswith('.') or audio_file.name.startswith('._'):
                 continue
 
-            for subject_dir in sorted(diagnosis_dir.iterdir()):
-                if not subject_dir.is_dir():
-                    continue
+            # parse filename: {HC|PD}_{TASK}_{ID}.wav
+            parsed = self._parse_filename(audio_file.stem)
+            if parsed is None:
+                continue  # skip unparseable files silently
 
-                subject_id = f"{diagnosis}_{subject_dir.name}"
+            diagnosis, task, subject_num = parsed
+            label = 1 if diagnosis == 'PD' else 0
+            subject_id = f"{diagnosis}_{subject_num:04d}"
 
-                for audio_file in sorted(subject_dir.glob("*.wav")):
-                    task_name = self._parse_neurovoz_task(audio_file.stem)
+            # filter by task if specified
+            if self.task is not None and task not in self.task:
+                continue
 
-                    if self.task is not None and task_name not in self.task:
-                        continue
+            sample = {
+                'path': audio_file,
+                'label': label,
+                'subject_id': subject_id,
+                'task': task,
+                'diagnosis': diagnosis,
+                'subject_number': subject_num
+            }
 
-                    samples.append({
-                        'path': audio_file,
-                        'label': label,
-                        'subject_id': subject_id,
-                        'task': task_name,
-                        'diagnosis': diagnosis
-                    })
+            # merge with metadata if available
+            if subject_id in metadata:
+                sample.update(metadata[subject_id])
+
+            samples.append(sample)
 
         return samples
 
-    def _parse_neurovoz_task(self, filename: str) -> str:
-        """parse neurovoz task name."""
-        filename_lower = filename.lower()
+    def _load_metadata_files(self, metadata_dir: Path) -> Dict:
+        """load and parse metadata CSV files."""
+        metadata = {}
 
-        if 'vowel_a' in filename_lower:
-            return 'vowel_a'
-        elif 'vowel_e' in filename_lower:
-            return 'vowel_e'
-        elif 'vowel_i' in filename_lower:
-            return 'vowel_i'
-        elif 'vowel_o' in filename_lower:
-            return 'vowel_o'
-        elif 'vowel_u' in filename_lower:
-            return 'vowel_u'
-        elif 'ddk_pa' in filename_lower:
-            return 'ddk_pa'
-        elif 'ddk_ta' in filename_lower:
-            return 'ddk_ta'
-        elif 'ddk_ka' in filename_lower:
-            return 'ddk_ka'
-        elif 'ddk_pataka' in filename_lower or 'pataka' in filename_lower:
-            return 'ddk_pataka'
-        elif 'monologue' in filename_lower:
-            return 'monologue'
-        else:
-            return filename
+        if not metadata_dir.exists():
+            warnings.warn(f"metadata directory not found: {metadata_dir}")
+            return metadata
+
+        # load HC metadata
+        hc_file = metadata_dir / 'metadata_hc.csv'
+        if hc_file.exists():
+            try:
+                df = pd.read_csv(hc_file, encoding='utf-8')
+                for _, row in df.iterrows():
+                    if pd.notna(row.get('ID')):
+                        subject_id = f"HC_{int(row['ID']):04d}"
+                        if subject_id not in metadata:
+                            metadata[subject_id] = self._parse_metadata_row(row)
+            except Exception as e:
+                warnings.warn(f"failed to load HC metadata: {e}")
+
+        # load PD metadata
+        pd_file = metadata_dir / 'metadata_pd.csv'
+        if pd_file.exists():
+            try:
+                df = pd.read_csv(pd_file, encoding='utf-8')
+                for _, row in df.iterrows():
+                    if pd.notna(row.get('ID')):
+                        subject_id = f"PD_{int(row['ID']):04d}"
+                        if subject_id not in metadata:
+                            metadata[subject_id] = self._parse_metadata_row(row)
+            except Exception as e:
+                warnings.warn(f"failed to load PD metadata: {e}")
+
+        return metadata
+
+    def _parse_metadata_row(self, row: pd.Series) -> Dict:
+        """extract relevant metadata fields from CSV row."""
+        meta = {}
+
+        # demographics
+        if 'Age' in row and pd.notna(row['Age']):
+            meta['age'] = float(row['Age'])
+        if 'Sex' in row and pd.notna(row['Sex']):
+            meta['sex'] = int(row['Sex'])  # 0=female, 1=male typically
+
+        # clinical scores
+        if 'UPDRS scale' in row and pd.notna(row['UPDRS scale']):
+            meta['updrs'] = float(row['UPDRS scale'])
+        if 'H-Y Stadium' in row and pd.notna(row['H-Y Stadium']):
+            meta['hy_stadium'] = float(row['H-Y Stadium'])
+        if 'Time Disease (years)' in row and pd.notna(row['Time Disease (years)']):
+            meta['disease_duration'] = float(row['Time Disease (years)'])
+
+        # symptoms (binary flags)
+        symptom_cols = ['Vocal tremor', 'Cephalic tremor', 'Mandibular tremor',
+                       'Sialorrhoea', 'Dysphagia', 'Hypophonic voice']
+        for col in symptom_cols:
+            if col in row and pd.notna(row[col]):
+                meta[col.lower().replace(' ', '_')] = int(row[col])
+
+        return meta
+
+    def _parse_filename(self, filename: str) -> Optional[Tuple[str, str, int]]:
+        """
+        parse neurovoz filename format.
+
+        expected: {HC|PD}_{TASK}_{ID} or {HC|PD}_{WORD1}_{WORD2}_{ID}
+        example: HC_A1_0034 -> ('HC', 'vowel_a1', 34)
+                 HC_PAN_VINO_0034 -> ('HC', 'pan_vino', 34)
+
+        returns: (diagnosis, task_name, subject_number)
+        """
+        parts = filename.split('_')
+        if len(parts) < 3:
+            return None
+
+        diagnosis = parts[0]  # HC or PD
+        if diagnosis not in ['HC', 'PD']:
+            return None
+
+        # try to parse subject_num from last part
+        try:
+            subject_num = int(parts[-1])
+        except ValueError:
+            return None
+
+        # everything between diagnosis and subject_num is the task
+        # join with underscore for multi-word tasks
+        task_raw = '_'.join(parts[1:-1])
+        task_name = self._parse_task_name(task_raw)
+
+        return diagnosis, task_name, subject_num
+
+    def _parse_task_name(self, task: str) -> str:
+        """parse task name from filename."""
+        task_upper = task.upper()
+
+        # sustained vowels
+        vowel_map = {
+            'A1': 'vowel_a1', 'A2': 'vowel_a2', 'A3': 'vowel_a3',
+            'E1': 'vowel_e1', 'E2': 'vowel_e2', 'E3': 'vowel_e3',
+            'I1': 'vowel_i1', 'I2': 'vowel_i2', 'I3': 'vowel_i3',
+            'O1': 'vowel_o1', 'O2': 'vowel_o2', 'O3': 'vowel_o3',
+            'U1': 'vowel_u1', 'U2': 'vowel_u2', 'U3': 'vowel_u3',
+        }
+
+        if task_upper in vowel_map:
+            return vowel_map[task_upper]
+
+        # special tasks
+        if task_upper == 'FREE':
+            return 'free_speech'
+
+        # spanish words - keep as-is but lowercase
+        return task.lower()
 
 
 class PCGITADataset(BasePDDataset):

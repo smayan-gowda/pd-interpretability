@@ -15,6 +15,13 @@ data/activations/*.dat
 results/checkpoints/*.pt
 results/checkpoints/*.bin
 *.ckpt
+*.safetensors
+results/final_model/
+results/checkpoints/*/final_model/
+results/checkpoints/*/*.pdf
+results/checkpoints/*/*.png
+results/neurovoz_baseline/
+results/*.json
 
 # environment
 .env
