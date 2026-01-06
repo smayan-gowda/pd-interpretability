@@ -1,20 +1,3 @@
-{
-  "model_name": "facebook/wav2vec2-base-960h",
-  "num_labels": 2,
-  "freeze_feature_extractor": true,
-  "freeze_encoder_layers": 4,
-  "dropout": 0.15,
-  "gradient_checkpointing": true,
-  "max_duration": 10.0,
-  "target_sr": 16000,
-  "num_epochs": 15,
-  "learning_rate": 5e-05,
-  "warmup_ratio": 0.1,
-  "weight_decay": 0.01,
-  "early_stopping_patience": 3,
-  "max_folds": 3,
-  "random_seed": 42,
-  "batch_size": 4,
-  "gradient_accumulation_steps": 8,
-  "fp16": false
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:548d25e3b544cbb81fa0a6037414c2e7b1f023cbcff550d487720c26d80725f9
+size 469

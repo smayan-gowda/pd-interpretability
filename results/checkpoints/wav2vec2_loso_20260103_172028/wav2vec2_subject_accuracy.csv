@@ -1,4 +1,3 @@
-subject_id,diagnosis,accuracy,correct,total
-HC_elderly_ANGELA_G,hc,0.9375,15,16
-HC_elderly_AGNESE_P,hc,0.0,0,16
-HC_elderly_ANGELA_C,hc,0.0,0,16
+version https://git-lfs.github.com/spec/v1
+oid sha256:9e3f720cd867849962df0256df41b46845361cd082d448bc2dd1ce8bd0dc5263
+size 144
