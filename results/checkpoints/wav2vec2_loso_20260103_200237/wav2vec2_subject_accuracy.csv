@@ -1,0 +1,4 @@
+subject_id,diagnosis,accuracy,correct,total
+HC_elderly_AGNESE_P,hc,1.0,16,16
+HC_elderly_ANGELA_C,hc,1.0,16,16
+HC_elderly_ANGELA_G,hc,1.0,16,16

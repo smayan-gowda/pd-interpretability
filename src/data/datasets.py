@@ -199,83 +199,56 @@ class BasePDDataset(Dataset, ABC):
             waveform = waveform / max_val
         return waveform
 
-    def get_subject_split(
-        self,
-        test_size: float = 0.2,
-        val_size: float = 0.1,
-        random_state: int = 42,
-        stratify: bool = True
-    ) -> Tuple[Subset, Subset, Subset]:
+    def get_subject_split(self, test_size: float = 0.2, val_size: Optional[float] = None, random_state: int = 42, stratify: bool = True):
         """
-        create train/val/test split by subject to prevent data leakage.
-
-        ensures no subject appears in multiple splits, which is critical for
-        proper evaluation in medical machine learning.
-
-        args:
-            test_size: fraction of subjects for test set
-            val_size: fraction of subjects for validation set
-            random_state: random seed for reproducibility
-            stratify: whether to stratify split by diagnosis label
-
-        returns:
-            (train_dataset, val_dataset, test_dataset) as subset objects
+        Splits the dataset into training, validation, and test sets based on subjects.
+        Ensures no subject's samples are in more than one set.
         """
-        subject_ids = list(set(s['subject_id'] for s in self.samples))
+        if not (0 <= test_size < 1): # Changed from 0 <= test_size <= 1 as test_size cannot be 1 when stratifying
+            raise ValueError("test_size must be in the range [0, 1).")
+        if val_size is not None and not (0 <= val_size < 1 - test_size):
+            raise ValueError(f"val_size must be in the range [0, {1-test_size}).")
 
+        unique_subjects = np.array([s['subject_id'] for s in self.samples])
+        unique_subjects = np.unique(unique_subjects)
+        
+        # Stratify by subject labels if requested
+        subject_labels = None
         if stratify:
-            subject_labels = [
-                self.samples[self._get_first_sample_idx(sid)]['label']
-                for sid in subject_ids
-            ]
-        else:
-            subject_labels = None
+            # Get a representative label for each subject (e.g., the label of their first sample)
+            subject_to_label = {s['subject_id']: s['label'] for s in self.samples}
+            subject_labels = np.array([subject_to_label[s_id] for s_id in unique_subjects])
 
-        train_val_subjects, test_subjects = train_test_split(
-            subject_ids,
-            test_size=test_size,
-            stratify=subject_labels,
-            random_state=random_state
+        # First split: Separate out the test subjects
+        train_val_subjects, test_subjects, train_val_labels, _ = train_test_split(
+            unique_subjects, subject_labels, 
+            test_size=test_size, 
+            random_state=random_state,
+            stratify=subject_labels # Pass original subject_labels for the first split
         )
 
-        # handle case where val_size is 0
-        if val_size == 0 or val_size is None:
-            train_subjects = train_val_subjects
-            val_subjects = []
-        else:
-            if stratify:
-                train_val_labels = [
-                    self.samples[self._get_first_sample_idx(sid)]['label']
-                    for sid in train_val_subjects
-                ]
-            else:
-                train_val_labels = None
+        val_subjects = []
+        if val_size is not None and val_size > 0:
+            # Second split: Separate out validation subjects from train_val_subjects
+            # Calculate val_test_size relative to the remaining train_val_subjects
+            relative_val_size = val_size / (1 - test_size)
 
-            train_subjects, val_subjects = train_test_split(
-                train_val_subjects,
-                test_size=val_size / (1 - test_size),
-                stratify=train_val_labels,
-                random_state=random_state
+            train_subjects, val_subjects, _, _ = train_test_split(
+                train_val_subjects, train_val_labels,
+                test_size=relative_val_size,
+                random_state=random_state,
+                stratify=train_val_labels
             )
+        else:
+            # If no validation split, all remaining go to train
+            train_subjects = train_val_subjects
 
-        train_indices = [
-            i for i, s in enumerate(self.samples)
-            if s['subject_id'] in train_subjects
-        ]
-        val_indices = [
-            i for i, s in enumerate(self.samples)
-            if s['subject_id'] in val_subjects
-        ]
-        test_indices = [
-            i for i, s in enumerate(self.samples)
-            if s['subject_id'] in test_subjects
-        ]
+        # Convert subject IDs back to dataset indices
+        train_indices = [i for i, s in enumerate(self.samples) if s['subject_id'] in train_subjects]
+        val_indices = [i for i, s in enumerate(self.samples) if s['subject_id'] in val_subjects]
+        test_indices = [i for i, s in enumerate(self.samples) if s['subject_id'] in test_subjects]
 
-        return (
-            Subset(self, train_indices),
-            Subset(self, val_indices),
-            Subset(self, test_indices)
-        )
+        return Subset(self, train_indices), Subset(self, val_indices), Subset(self, test_indices)
 
     def _get_first_sample_idx(self, subject_id: str) -> int:
         """get index of first sample for given subject."""
