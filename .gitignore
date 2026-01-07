@@ -1,39 +1,34 @@
-# data files (too large for git)
+# data: keep metadata, exclude heavy audio/activations
 data/raw/
-data/processed/*.wav
-data/activations/*.npy
-data/activations/*.dat
-*.wav
-*.mp3
+data/**/raw/
+data/processed/**/*.{wav,flac,mp3,ogg,aac}
+data/activations/
+data/activations/**
 
-# keep small processed files
-!data/processed/*.csv
-!data/processed/*.json
-!data/clinical_features/*.csv
+# data metadata to keep tracked
+!data/processed/**/*.csv
+!data/processed/**/*.json
+!data/clinical_features/**/*.csv
+!data/clinical_features/**/*.json
 
-# model checkpoints (use google drive for these)
-results/checkpoints/*.pt
-results/checkpoints/*.bin
+# model weights and checkpoints
+results/checkpoints/
+results/final_model/
 *.ckpt
 *.safetensors
-results/final_model/
-results/checkpoints/*/final_model/
-results/checkpoints/*/*.pdf
-results/checkpoints/*/*.png
-results/neurovoz_baseline/
-results/*.json
+*.bin
+*.pt
 
-# environment
+# environments and caches
 .env
 venv/
 *.pyc
 __pycache__/
 .ipynb_checkpoints/
 
-# ide
+# ide/editor
 .vscode/
 .idea/
 
 # os
 .DS_Store
-data/activations/
