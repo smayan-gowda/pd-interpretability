@@ -33,3 +33,4 @@ __pycache__/
 # os
 .DS_Store
 ._*
+results/probing/*cache*.pkl
