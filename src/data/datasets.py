@@ -479,6 +479,16 @@ class ItalianPVSDataset(BasePDDataset):
         else:
             return 'unknown'
 
+    def get_subject_groups(self):
+        """Retrieve subject groups from the dataset samples."""
+        subject_groups = {}
+        for sample in self.samples:
+            subject_id = sample.get('subject_id')
+            if subject_id not in subject_groups:
+                subject_groups[subject_id] = []
+            subject_groups[subject_id].append(sample)
+        return subject_groups
+
 
 class MDVRKCLDataset(BasePDDataset):
     """
