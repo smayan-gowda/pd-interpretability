@@ -82,6 +82,40 @@ class ClinicalFeatureExtractor:
 
         return features
 
+    def extract_from_array(
+        self,
+        audio: np.ndarray,
+        sample_rate: int
+    ) -> Dict[str, float]:
+        """
+        extract all clinical features from raw audio array.
+
+        args:
+            audio: numpy array of audio samples
+            sample_rate: sampling rate in hz
+
+        returns:
+            dictionary of clinical features (same as extract method)
+        """
+        try:
+            # create parselmouth sound object from numpy array
+            sound = parselmouth.Sound(audio, sampling_frequency=sample_rate)
+        except Exception as e:
+            raise ValueError(f"failed to create sound from audio array: {e}")
+
+        features = {}
+
+        features.update(self._extract_pitch_features(sound))
+        features.update(self._extract_jitter_features(sound))
+        features.update(self._extract_shimmer_features(sound))
+        features.update(self._extract_hnr_features(sound))
+        features.update(self._extract_formant_features(sound))
+        features.update(self._extract_duration_features(sound))
+
+        features = self._handle_nan_values(features)
+
+        return features
+
     def _extract_pitch_features(self, sound: parselmouth.Sound) -> Dict[str, float]:
         """extract fundamental frequency (f0) statistics."""
         try:

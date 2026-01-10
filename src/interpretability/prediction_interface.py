@@ -258,28 +258,36 @@ class InterpretablePredictionInterface:
         """identify layers with strongest feature encoding."""
         if not self.probing_results:
             return list(range(3, 8))  # default: layers 3-7
-        
+
         layer_scores = {}
-        
+
         for feature, layer_dict in self.probing_results.items():
-            for layer_idx, score in layer_dict.items():
+            for layer_idx, score_data in layer_dict.items():
+                # extract r2_score from dict or use raw value
+                if isinstance(score_data, dict) and 'r2_score' in score_data:
+                    score = score_data['r2_score']
+                elif isinstance(score_data, (int, float)):
+                    score = score_data
+                else:
+                    continue  # skip invalid entries
+
                 if layer_idx not in layer_scores:
                     layer_scores[layer_idx] = []
                 layer_scores[layer_idx].append(score)
-        
+
         # average across features
         avg_scores = {
             layer: np.mean(scores)
             for layer, scores in layer_scores.items()
         }
-        
+
         # get top layers
         sorted_layers = sorted(
             avg_scores.items(),
             key=lambda x: x[1],
             reverse=True
         )
-        
+
         return [layer for layer, _ in sorted_layers[:top_k]]
     
     def _compute_key_heads(self, top_k: int = 10) -> List[Tuple[int, int]]:
@@ -394,7 +402,7 @@ class InterpretablePredictionInterface:
         clinical_features = None
         if include_clinical and self.clinical_extractor is not None:
             try:
-                clinical_features = self.clinical_extractor.extract_all_features(
+                clinical_features = self.clinical_extractor.extract_from_array(
                     audio, sample_rate
                 )
             except Exception as e:
@@ -445,15 +453,25 @@ class InterpretablePredictionInterface:
             # fall back to probing-based contributions
             for feature, layer_scores in self.probing_results.items():
                 if layer_scores:
-                    max_score = max(layer_scores.values())
-                    interpretation, direction = CLINICAL_INTERPRETATIONS.get(
-                        feature, (feature, 'unknown')
-                    )
-                    
-                    # weight by prediction confidence
-                    contrib = max_score * (pd_probability if direction == 'elevated' else (1 - pd_probability))
-                    contributions[f"{feature}_{direction}"] = round(contrib, 4)
-            
+                    # extract r2_score from each layer result
+                    r2_scores = []
+                    for layer_result in layer_scores.values():
+                        if isinstance(layer_result, dict) and 'r2_score' in layer_result:
+                            r2_scores.append(layer_result['r2_score'])
+                        elif isinstance(layer_result, (int, float)):
+                            # fallback for plain numeric values
+                            r2_scores.append(layer_result)
+
+                    if r2_scores:
+                        max_score = max(r2_scores)
+                        interpretation, direction = CLINICAL_INTERPRETATIONS.get(
+                            feature, (feature, 'unknown')
+                        )
+
+                        # weight by prediction confidence
+                        contrib = max_score * (pd_probability if direction == 'elevated' else (1 - pd_probability))
+                        contributions[f"{feature}_{direction}"] = round(contrib, 4)
+
             return contributions
         
         # compute contributions from clinical features
