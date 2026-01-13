@@ -3,7 +3,7 @@
 ## chameleon cloud instance
 - **status**: active and running
 - **gpu**: quadro rtx 6000 (24gb vram)
-- **utilization**: 92% gpu, 3.1gb vram used
+- **utilization**: 95% gpu, 3.1gb vram used, 65°c
 - **ssh**: `ssh -i ~/.ssh/neuroscope-key cc@192.5.86.214`
 
 ## completed phases
@@ -78,4 +78,4 @@ ssh -i ~/.ssh/neuroscope-key cc@192.5.86.214 "df -h /"
 - loso cross-validation trains on 51 subjects (leave-one-subject-out)
 
 ---
-**last updated**: 2026-01-13 07:09 utc
+**last updated**: 2026-01-13 07:11 utc
