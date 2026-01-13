@@ -34,3 +34,4 @@ __pycache__/
 .DS_Store
 ._*
 results/probing/*cache*.pkl
+neuroscope-key.pem
